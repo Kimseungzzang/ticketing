@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException
 class AuthService(
     private val userRepository: UserRepository,
     private val jwtService: JwtService,
+    private val redisTokenStore: RedisTokenStore,
     private val passwordEncoder: PasswordEncoder,
 ) {
     @Transactional
@@ -44,8 +45,11 @@ class AuthService(
         if (!passwordEncoder.matches(req.password, user.password)) {
             throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "비밀번호가 올바르지 않습니다")
         }
+        val accessToken = jwtService.generate(user.id, user.name)
+        redisTokenStore.saveJwt(user.id, accessToken, jwtService.expirationMillis())
+
         return AuthResponse(
-            accessToken = jwtService.generate(user.id, user.name),
+            accessToken = accessToken,
             user = UserInfo(user.id, user.name),
         )
     }

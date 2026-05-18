@@ -35,4 +35,6 @@ class JwtService(
     fun getUserId(token: String): String = getClaims(token).subject
 
     fun getName(token: String): String = getClaims(token)["name", String::class.java]
+
+    fun expirationMillis(): Long = expirationMs
 }
