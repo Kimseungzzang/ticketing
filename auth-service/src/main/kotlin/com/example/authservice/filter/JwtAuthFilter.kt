@@ -21,7 +21,7 @@ class JwtAuthFilter(private val jwtService: JwtService) : OncePerRequestFilter()
         val header = request.getHeader("Authorization")
         if (header != null && header.startsWith("Bearer ")) {
             val token = header.removePrefix("Bearer ")
-            if (jwtService.isValid(token)) {
+            if (jwtService.isValidAccessToken(token)) {
                 val auth = UsernamePasswordAuthenticationToken(
                     jwtService.getUserId(token),
                     null,

@@ -2,8 +2,14 @@ package com.example.authservice.dto
 
 data class AuthResponse(
     val accessToken: String,
+    val refreshToken: String,
     val tokenType: String = "Bearer",
     val user: UserInfo,
+)
+
+data class RefreshResponse(
+    val accessToken: String,
+    val tokenType: String = "Bearer",
 )
 
 data class UserInfo(

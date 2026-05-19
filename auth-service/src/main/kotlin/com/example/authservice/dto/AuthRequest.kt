@@ -24,3 +24,8 @@ data class RegisterRequest(
     @field:Size(min = 6, message = "비밀번호는 최소 6자여야 합니다")
     val password: String,
 )
+
+data class RefreshRequest(
+    @field:NotBlank(message = "리프레시 토큰을 입력해 주세요")
+    val refreshToken: String,
+)

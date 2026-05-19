@@ -26,7 +26,7 @@ class SecurityConfig(private val jwtAuthFilter: JwtAuthFilter) {
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { auth ->
                 auth
-                    .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/verify")
+                    .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/verify", "/api/auth/refresh")
                     .permitAll()
                     .anyRequest().authenticated()
             }
