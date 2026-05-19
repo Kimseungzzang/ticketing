@@ -13,7 +13,7 @@ class Server(private val port: Int = 6379) {
 
     fun start() {
         val bossGroup = NioEventLoopGroup(1)
-        val workerGroup = NioEventLoopGroup()
+        val workerGroup = NioEventLoopGroup(1)
         try {
             val channel = ServerBootstrap()
                 .group(bossGroup, workerGroup)
