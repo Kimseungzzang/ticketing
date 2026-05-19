@@ -17,10 +17,12 @@ server:
 
 jwt:
   secret: ${JWT_SECRET:auth-service-secret-key-must-be-at-least-32-characters-long}
-  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  access-expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:300000}
+  refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:900000}
 
 redis:
   host: ${REDIS_HOST:localhost}
   port: ${REDIS_PORT:6379}
   connect-timeout-ms: ${REDIS_CONNECT_TIMEOUT_MS:1000}
   read-timeout-ms: ${REDIS_READ_TIMEOUT_MS:1000}
+  pool-size: ${REDIS_POOL_SIZE:4}
