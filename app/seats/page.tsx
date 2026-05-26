@@ -1,16 +1,57 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { mockEvent, mockSections, SERVICE_FEE } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
+const AUTH_API = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8081';
 const MAX_SEATS = 4;
 
 export default function SeatsPage() {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeSection, setActiveSection] = useState('S');
+  const [validating, setValidating] = useState(true);
+
+  // 진입 시 Redis에 살아있는 토큰인지 검증
+  useEffect(() => {
+    const accessToken = localStorage.getItem('accessToken');
+    const entryToken  = localStorage.getItem('entryToken');
+    const eventId     = localStorage.getItem('entryEventId');
+
+    if (!accessToken || !entryToken || !eventId) {
+      router.replace('/queue');
+      return;
+    }
+
+    fetch(`${AUTH_API}/api/queue/validate?entryToken=${entryToken}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('invalid token');
+        setValidating(false);
+      })
+      .catch(() => {
+        // 토큰 만료 or 없음 → 슬롯 반납 후 대기열로
+        fetch(`${AUTH_API}/api/queue/release?eventId=${eventId}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).finally(() => {
+          localStorage.removeItem('entryToken');
+          localStorage.removeItem('entryEventId');
+          router.replace('/queue');
+        });
+      });
+  }, [router]);
+
+  if (validating) {
+    return (
+      <div className="min-h-screen bg-[#04040A] flex items-center justify-center">
+        <p className="text-[#F0EBE0] opacity-40 text-sm">입장 확인 중...</p>
+      </div>
+    );
+  }
 
   const currentSection = mockSections.find(s => s.id === activeSection)!;
 

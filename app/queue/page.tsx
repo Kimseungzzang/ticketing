@@ -1,33 +1,103 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { mockEvent, INITIAL_QUEUE_POSITION, TOTAL_IN_QUEUE } from '@/lib/mock-data';
+import { mockEvent } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const WAIT_SECONDS = 10;
+const AUTH_API = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8081';
+const EVENT_ID = 'EVT2026-001';
+const POLL_INTERVAL_MS = 3000;
+
+type QueueStatus = {
+  status: 'WAITING' | 'READY' | 'NOT_IN_QUEUE';
+  position: number | null;
+  total: number;
+  entryToken: string | null;
+};
 
 export default function QueuePage() {
   const router = useRouter();
-  const [secondsLeft, setSecondsLeft] = useState(WAIT_SECONDS);
-  const [isReady, setIsReady] = useState(false);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const position = isReady ? 0 : Math.max(0, Math.round(INITIAL_QUEUE_POSITION * (secondsLeft / WAIT_SECONDS)));
-  const progress = ((TOTAL_IN_QUEUE - position) / TOTAL_IN_QUEUE) * 100;
+  const getToken = () =>
+    typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const fetchStatus = useCallback(async () => {
+    const token = getToken();
+    if (!token) { router.push('/'); return; }
+
+    try {
+      const res = await fetch(`${AUTH_API}/api/queue/status?eventId=${EVENT_ID}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('상태 조회 실패');
+
+      const data = await res.json() as QueueStatus;
+      setQueueStatus(data);
+
+      if (data.status === 'READY' && data.entryToken) {
+        stopPolling();
+        localStorage.setItem('entryToken', data.entryToken);
+        localStorage.setItem('entryEventId', EVENT_ID);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '오류가 발생했습니다');
+    }
+  }, [router]);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setSecondsLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(id);
-          setIsReady(true);
-          return 0;
+    const token = getToken();
+    if (!token) { router.push('/'); return; }
+
+    // 이미 입장 토큰이 있으면 → /seats 로 다시 보내기
+    const existingEntryToken = localStorage.getItem('entryToken');
+    if (existingEntryToken) {
+      router.replace('/seats');
+      return;
+    }
+
+    // 대기열 진입
+    fetch(`${AUTH_API}/api/queue/enter`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ eventId: EVENT_ID }),
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('대기열 진입 실패');
+        return res.json();
+      })
+      .then((data: QueueStatus) => {
+        setQueueStatus(data);
+        if (data.status === 'READY' && data.entryToken) {
+          localStorage.setItem('entryToken', data.entryToken);
+          localStorage.setItem('entryEventId', EVENT_ID);
+        } else {
+          // WAITING → 폴링 시작
+          pollRef.current = setInterval(fetchStatus, POLL_INTERVAL_MS);
         }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
+      })
+      .catch(e => setError(e instanceof Error ? e.message : '대기열 진입에 실패했습니다'));
+
+    return stopPolling;
+  }, [fetchStatus, router]);
+
+  const isReady   = queueStatus?.status === 'READY';
+  const position  = queueStatus?.position ?? 0;
+  const total     = queueStatus?.total ?? 0;
+  const progress  = total > 0 ? ((total - position) / total) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-[#04040A] flex flex-col">
@@ -51,6 +121,14 @@ export default function QueuePage() {
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-16">
         <div className="text-center w-full max-w-md">
 
+          {/* 에러 */}
+          {error && (
+            <div className="mb-8 rounded-lg border px-4 py-3 text-sm"
+                 style={{ background: 'rgba(160,32,32,0.14)', borderColor: 'rgba(218,82,82,0.35)', color: '#F6C4C4' }}>
+              {error}
+            </div>
+          )}
+
           {/* Status badge */}
           <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium mb-12 border transition-all duration-700 ${
             isReady
@@ -64,7 +142,7 @@ export default function QueuePage() {
             {isReady ? '입장 가능합니다!' : '대기열 처리 중...'}
           </div>
 
-          {/* Position number */}
+          {/* 순서 숫자 */}
           <div className="mb-8 animate-slideUp">
             <p className="text-[#F0EBE0] text-xs tracking-[0.4em] uppercase mb-4 opacity-40">
               현재 대기 순서
@@ -73,17 +151,17 @@ export default function QueuePage() {
               isReady ? 'text-emerald-400' : 'text-[#D4A83A] animate-pulseGlow'
             }`}
             style={{ fontFamily: 'var(--font-cormorant)', fontSize: '8rem' }}>
-              {isReady ? '입장' : position.toLocaleString()}
+              {isReady ? '입장' : (position > 0 ? position.toLocaleString() : '···')}
             </p>
-            {!isReady && (
+            {!isReady && total > 0 && (
               <p className="text-[#F0EBE0] text-sm mt-2 opacity-30">
-                전체 {TOTAL_IN_QUEUE.toLocaleString()}명 중
+                전체 {total.toLocaleString()}명 중
               </p>
             )}
           </div>
 
           {/* Progress bar */}
-          {!isReady && (
+          {!isReady && total > 0 && (
             <div className="mb-8 animate-slideUp delay-100">
               <div className="h-1 bg-white/6 rounded-full overflow-hidden">
                 <div
@@ -93,26 +171,26 @@ export default function QueuePage() {
               </div>
               <div className="flex justify-between mt-2 text-xs opacity-30">
                 <span className="text-[#F0EBE0]">진행률 {progress.toFixed(1)}%</span>
-                <span className="text-[#F0EBE0]">예상 {secondsLeft}초</span>
+                <span className="text-[#F0EBE0]">3초마다 갱신</span>
               </div>
             </div>
           )}
 
           {/* Info cards */}
-          {!isReady && (
+          {!isReady && total > 0 && (
             <div className="grid grid-cols-2 gap-3 mb-10 animate-slideUp delay-200">
               <div className="bg-[#0E0E1A] border border-white/6 rounded-2xl p-4 text-left">
                 <p className="text-[#F0EBE0] text-xs opacity-40 mb-1.5">전체 대기 인원</p>
                 <p className="text-[#F0EBE0] text-xl font-semibold tabular-nums">
-                  {TOTAL_IN_QUEUE.toLocaleString()}
+                  {total.toLocaleString()}
                   <span className="text-xs font-normal opacity-50 ml-1">명</span>
                 </p>
               </div>
               <div className="bg-[#0E0E1A] border border-white/6 rounded-2xl p-4 text-left">
-                <p className="text-[#F0EBE0] text-xs opacity-40 mb-1.5">예상 대기 시간</p>
+                <p className="text-[#F0EBE0] text-xs opacity-40 mb-1.5">내 순서</p>
                 <p className="text-[#F0EBE0] text-xl font-semibold tabular-nums">
-                  {secondsLeft}
-                  <span className="text-xs font-normal opacity-50 ml-1">초</span>
+                  {position.toLocaleString()}
+                  <span className="text-xs font-normal opacity-50 ml-1">번</span>
                 </p>
               </div>
             </div>
