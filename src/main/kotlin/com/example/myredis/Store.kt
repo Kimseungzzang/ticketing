@@ -8,6 +8,9 @@ object Store {
 
     private val map = ConcurrentHashMap<String, Entry>()
 
+    // Sorted Set: key -> (member -> score)
+    private val sortedSets = ConcurrentHashMap<String, ConcurrentHashMap<String, Double>>()
+
     fun set(key: String, value: String, ttlMs: Long? = null) {
         map[key] = Entry(value, ttlMs?.let { System.currentTimeMillis() + it })
         printDebugTable("SET $key")
@@ -57,10 +60,84 @@ object Store {
 
     fun keys(): Set<String> {
         val now = System.currentTimeMillis()
-        return map.entries
+        val stringKeys = map.entries
             .filter { (_, v) -> v.expiresAt == null || v.expiresAt > now }
             .map { it.key }
-            .toSet()
+        val sortedSetKeys = sortedSets.keys.toList()
+        return (stringKeys + sortedSetKeys).toSet()
+    }
+
+    /** 키 타입 반환: "string" | "zset" | "none" */
+    fun type(key: String): String = when {
+        sortedSets.containsKey(key) -> "zset"
+        map.containsKey(key)        -> "string"
+        else                        -> "none"
+    }
+
+    /** score 오름차순으로 전체 member 반환 */
+    fun zrange(key: String): List<Pair<String, Double>> {
+        val set = sortedSets[key] ?: return emptyList()
+        return set.entries.sortedBy { it.value }.map { it.key to it.value }
+    }
+
+    fun ttlMs(key: String): Long {
+        val entry = map[key] ?: return -2L
+        val expiresAt = entry.expiresAt ?: return -1L
+        val remaining = expiresAt - System.currentTimeMillis()
+        return if (remaining <= 0) -2L else remaining
+    }
+
+    // ── Sorted Set ──────────────────────────────────────────────────────────
+
+    /** member가 새로 추가되면 1, 이미 있으면 score만 갱신하고 0 반환 */
+    fun zadd(key: String, score: Double, member: String): Long {
+        val set = sortedSets.getOrPut(key) { ConcurrentHashMap() }
+        val isNew = !set.containsKey(member)
+        set[member] = score
+        println("[STORE] ZADD $key  score=$score  member=$member  (new=$isNew, size=${set.size})")
+        return if (isNew) 1L else 0L
+    }
+
+    /** score 오름차순 기준 0-indexed 순위 반환, 없으면 null */
+    fun zrank(key: String, member: String): Long? {
+        val set = sortedSets[key] ?: return null
+        val rank = set.entries.sortedBy { it.value }.indexOfFirst { it.key == member }
+        return if (rank == -1) null else rank.toLong()
+    }
+
+    fun zcard(key: String): Long = sortedSets[key]?.size?.toLong() ?: 0L
+
+    /** score 가장 낮은 count개를 꺼내서 반환 (제거됨) */
+    fun zpopmin(key: String, count: Int = 1): List<Pair<String, Double>> {
+        val set = sortedSets[key] ?: return emptyList()
+        val popped = set.entries.sortedBy { it.value }.take(count)
+        popped.forEach { set.remove(it.key) }
+        println("[STORE] ZPOPMIN $key  count=$count  popped=${popped.map { it.key }}")
+        return popped.map { it.key to it.value }
+    }
+
+    // ── INCR / DECR ─────────────────────────────────────────────────────────
+
+    fun incr(key: String): Long {
+        var result = 0L
+        map.compute(key) { _, existing ->
+            val current = existing?.value?.toLongOrNull() ?: 0L
+            result = current + 1
+            Entry(result.toString(), existing?.expiresAt)
+        }
+        println("[STORE] INCR $key  →  $result")
+        return result
+    }
+
+    fun decr(key: String): Long {
+        var result = 0L
+        map.compute(key) { _, existing ->
+            val current = existing?.value?.toLongOrNull() ?: 0L
+            result = current - 1
+            Entry(result.toString(), existing?.expiresAt)
+        }
+        println("[STORE] DECR $key  →  $result")
+        return result
     }
 
     private fun printDebugTable(action: String) {
