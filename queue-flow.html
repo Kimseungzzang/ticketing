@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Redis 상태 뷰어</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #04040A;
+  color: #F0EBE0;
+  font-family: 'Segoe UI', monospace, sans-serif;
+  padding: 32px 24px;
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+h1 { color: #D4A83A; font-size: 1.1rem; letter-spacing: 0.25em; text-transform: uppercase; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; animation: pulse 1.5s infinite; }
+.dot.off { background: #ef4444; animation: none; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.status-text { font-size: 0.72rem; opacity: 0.4; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: #07070F;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 18px;
+  transition: border-color 0.3s;
+}
+.card.highlight { border-color: rgba(212,168,58,0.4); }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.key-name {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: #7C9EF0;
+  word-break: break-all;
+  flex: 1;
+}
+.type-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge-string { background: rgba(164,127,212,0.15); color: #A47FD4; border: 1px solid rgba(164,127,212,0.3); }
+.badge-zset   { background: rgba(124,158,240,0.15); color: #7C9EF0; border: 1px solid rgba(124,158,240,0.3); }
+
+/* String 값 */
+.string-value {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: #D4A83A;
+  background: rgba(212,168,58,0.07);
+  padding: 8px 12px;
+  border-radius: 8px;
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.ttl-bar-wrap { margin-top: 4px; }
+.ttl-label { font-size: 0.65rem; opacity: 0.35; margin-bottom: 4px; display: flex; justify-content: space-between; }
+.ttl-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+.ttl-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #D4A83A, #F0C860); transition: width 1s linear; }
+.no-ttl { font-size: 0.65rem; opacity: 0.25; }
+
+/* Sorted Set */
+.member-list { display: flex; flex-direction: column; gap: 6px; }
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(124,158,240,0.05);
+  border: 1px solid rgba(124,158,240,0.1);
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+.rank { font-size: 0.65rem; color: #D4A83A; font-weight: 700; min-width: 22px; }
+.member-name { font-family: monospace; font-size: 0.78rem; flex: 1; }
+.member-score { font-size: 0.65rem; opacity: 0.3; font-family: monospace; }
+.empty { font-size: 0.72rem; opacity: 0.25; text-align: center; padding: 12px 0; }
+
+/* 카운터 */
+.counter-display {
+  text-align: center;
+  padding: 10px 0;
+}
+.counter-num { font-size: 3rem; font-weight: 300; color: #D4A83A; line-height: 1; }
+.counter-cap { font-size: 0.72rem; opacity: 0.35; margin-top: 4px; }
+.cap-bar { height: 6px; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; margin-top: 10px; }
+.cap-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #D4A83A, #F0C860); transition: width 0.5s ease; }
+
+/* 빈 상태 */
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 0;
+  opacity: 0.2;
+  font-size: 0.85rem;
+}
+
+footer { margin-top: 24px; font-size: 0.65rem; opacity: 0.2; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Redis State</h1>
+  <span class="dot" id="dot"></span>
+  <span class="status-text" id="status-text">연결 중...</span>
+</header>
+
+<div class="grid" id="grid">
+  <div class="empty-state">myRedis에 저장된 키가 없습니다</div>
+</div>
+
+<footer>auth-service :8081/api/debug/redis · 2초마다 자동 갱신</footer>
+
+<script>
+const API = 'http://localhost:8081/api/debug/redis';
+const MAX_CAP = 5;
+const TTL_MAP = {};  // key -> originalTtl (처음 받은 TTL)
+
+async function fetchAndRender() {
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+
+    setStatus(true);
+    render(data);
+  } catch (e) {
+    setStatus(false);
+  }
+}
+
+function setStatus(ok) {
+  document.getElementById('dot').className = 'dot' + (ok ? '' : ' off');
+  document.getElementById('status-text').textContent = ok
+    ? `연결됨 · ${new Date().toLocaleTimeString()}`
+    : '연결 실패 (myRedis / auth-service 실행 중인지 확인)';
+}
+
+function render(data) {
+  const grid = document.getElementById('grid');
+  const keys = Object.keys(data);
+
+  if (keys.length === 0) {
+    grid.innerHTML = '<div class="empty-state">myRedis에 저장된 키가 없습니다</div>';
+    return;
+  }
+
+  grid.innerHTML = keys.map(key => {
+    const entry = data[key];
+    return entry.type === 'zset' ? renderZset(key, entry) : renderString(key, entry);
+  }).join('');
+}
+
+function renderZset(key, entry) {
+  const members = entry.members || [];
+  const membersHtml = members.length === 0
+    ? `<div class="empty">(비어있음)</div>`
+    : members.map(m => `
+        <div class="member-row">
+          <span class="rank">#${m.rank}</span>
+          <span class="member-name">${m.member}</span>
+          <span class="member-score">${m.score}</span>
+        </div>`).join('');
+
+  return `
+    <div class="card ${members.length > 0 ? 'highlight' : ''}">
+      <div class="card-header">
+        <span class="type-badge badge-zset">Sorted Set</span>
+        <span class="key-name">${key}</span>
+        <span style="font-size:0.7rem;opacity:0.4;">${members.length}개</span>
+      </div>
+      <div class="member-list">${membersHtml}</div>
+    </div>`;
+}
+
+function renderString(key, entry) {
+  const { value, ttl } = entry;
+  const isCounter = key.includes('count');
+  const isToken   = key.includes('entry');
+
+  if (isCounter) {
+    const num = parseInt(value) || 0;
+    const pct = Math.min(100, (num / MAX_CAP) * 100);
+    return `
+      <div class="card highlight">
+        <div class="card-header">
+          <span class="type-badge badge-string">String</span>
+          <span class="key-name">${key}</span>
+        </div>
+        <div class="counter-display">
+          <div class="counter-num">${num}</div>
+          <div class="counter-cap">/ MAX_CAP ${MAX_CAP}</div>
+          <div class="cap-bar"><div class="cap-fill" style="width:${pct}%"></div></div>
+        </div>
+      </div>`;
+  }
+
+  const ttlHtml = ttl < 0
+    ? `<div class="no-ttl">TTL 없음 (영구 저장)</div>`
+    : (() => {
+        if (!TTL_MAP[key]) TTL_MAP[key] = ttl;
+        const orig = TTL_MAP[key];
+        const pct = Math.min(100, (ttl / orig) * 100);
+        const min = Math.floor(ttl / 60);
+        const sec = ttl % 60;
+        return `
+          <div class="ttl-bar-wrap">
+            <div class="ttl-label">
+              <span>TTL</span>
+              <span>${min > 0 ? min + '분 ' : ''}${sec}초 남음</span>
+            </div>
+            <div class="ttl-bar"><div class="ttl-fill" style="width:${pct}%"></div></div>
+          </div>`;
+      })();
+
+  const displayValue = isToken
+    ? value.slice(0, 18) + '...'
+    : value;
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="type-badge badge-string">String</span>
+        <span class="key-name">${key}</span>
+      </div>
+      <div class="string-value">${displayValue}</div>
+      ${ttlHtml}
+    </div>`;
+}
+
+fetchAndRender();
+setInterval(fetchAndRender, 2000);
+</script>
+</body>
+</html>

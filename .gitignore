@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+.gradle-local/
+build/
+bin/
+*.jar
+
+# Kotlin
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Node
+node_modules/
+.next/
+frontend/.next/
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

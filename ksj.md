@@ -245,7 +245,7 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 - `myRedis`: worker event loop 1개
 - `auth-service`: 소켓 풀 4개 재사용
 
-즉, 서버 쪽은 단일 worker 흐름으로 단순하게 두고, 클라이언트 쪽은 연결 재사용으로 불필요한 connect/close 비용을 줄이는 방향이다.
+즉, 서버 쪽은 단일 worker 흐름으로 단순하게 두고, 클라이언트 쪽은 소켓 1개 전역 락 방식 대신 여러 연결을 분리해서 관리하는 방향이다.
 
 ### 1번이 탈락하는 이유
 
@@ -275,7 +275,17 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 
 ### 3번을 채택한 이유
 
-소켓 풀을 두고 연결을 재사용하면 연결 생성 비용을 줄일 수 있다.  
+현재 `myRedis`는 worker event loop가 1개이므로, 최종 명령 처리량 자체는 결국 서버 단일 worker 한계에 묶인다.  
+즉 소켓 풀 4개를 둔다고 해서 서버 처리량이 크게 늘어나는 구조는 아니다.
+
+그럼에도 3번을 택한 이유는 아래와 같다.
+
+- 소켓 1개 + 전역 락보다 스트림 관리가 더 자연스럽다.
+- 모든 요청이 하나의 락 앞에서 대기하지 않아도 된다.
+- 각 요청이 점유한 소켓 단위로 요청/응답 흐름을 분리할 수 있다.
+- 특정 소켓 하나에 문제가 생겨도 다른 소켓까지 전부 막히지는 않는다.
+- 이후 `myRedis` 구조가 확장되면 그대로 이점을 가져갈 수 있다.
+
 핵심은 "한 소켓을 동시에 여러 스레드가 같이 쓰지 않게 하는 것"이다.
 
 즉, 아래 규칙이면 된다.
@@ -288,6 +298,13 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 
 현재 `auth-service`는 이 방식을 실제로 적용했다.  
 다만 풀 크기가 4이므로 동시에 4개 연결이 모두 점유되면 이후 요청은 대기하게 된다. 이것은 오류가 아니라 의도된 backpressure다.
+
+즉 현재 구조에서 소켓 풀의 주된 목적은 "서버 처리량 증가"보다 아래에 가깝다.
+
+- 단일 소켓 전역 락 회피
+- 요청 단위 스트림 분리
+- 연결 장애 격리
+- 이후 구조 확장 대비
 
 ### 실제 Redis는 어떻게 동작하는가
 
@@ -353,6 +370,7 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 - 요청마다 새 소켓을 만들지 않는다.
 - 소켓 풀 크기는 4로 둔다.
 - 한 소켓은 동시에 하나의 요청만 처리하게 한다.
+- 소켓 풀을 둔 이유는 처리량을 무조건 높이기 위해서가 아니라, 단일 소켓 전역 락을 피하고 요청별 스트림을 분리하며 연결 장애를 격리하기 위해서다.
 - access token TTL은 5분, refresh token TTL은 15분으로 둔다.
 - 일반 요청 검증은 access token의 JWT 서명/만료/타입만 확인한다.
 - refresh 요청에서만 Redis의 refresh token과 비교한다.
@@ -375,7 +393,6 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 
 - 소켓 풀 크기 4가 실제 부하에서 적절한지 측정
 - 풀 고갈 시 timeout 정책 추가
-- `verify` 시 Redis 토큰 비교 로직 완성
 - 필요 시 worker 1개 구조와 command executor 분리 구조의 성능 비교
 
 ---
@@ -443,3 +460,121 @@ Spring은 멀티 스레드 환경이고, `myRedis`는 Netty 기반 멀티 스레
 
 이 프로젝트의 현재 방향은 학습용으로 매우 좋다.  
 다만 핵심은 `ConcurrentHashMap` 자체가 아니라 "명령 실행을 어떻게 직렬화할 것인가", 그리고 JWT를 정말 무상태로 쓸 것인지 아니면 Redis와 결합한 상태 기반 인증으로 운영할 것인지를 명확히 정의하는 것이다.
+
+---
+
+## 12. 대기열 시스템 설계
+
+### 12.1 왜 Sorted Set인가
+
+대기열의 핵심 연산은 "이 유저가 몇 번째인가" 이다.
+
+- `List`는 값으로 순위를 찾으려면 앞에서부터 전부 스캔해야 한다 → O(N)
+- `Sorted Set`은 `ZRANK` 한 번으로 O(log N)에 조회 가능
+- 내부적으로 skip list 구조를 사용해 정렬 상태를 유지
+- `Set`이기도 해서 같은 유저의 중복 진입을 자동으로 막아준다
+
+### 12.2 cap을 Sorted Set으로 관리하지 않는 이유
+
+active 인원 수는 단순한 숫자 하나다.  
+Set을 쓰면 SCARD로 한 번에 카운트할 수 있지만, INCR/DECR 카운터로도 동일하게 관리 가능하다.  
+다만 카운터는 TTL 만료 시 자동으로 줄어들지 않으므로, admitted 플래그로 슬롯 점유 상태를 별도 추적해야 한다.
+
+### 12.3 Redis 키 구조
+
+| 키 | 타입 | TTL | 역할 |
+|---|---|---|---|
+| `queue:sorted:{eventId}` | Sorted Set | 없음 | 대기열 (score = 진입 시각) |
+| `queue:active:count:{eventId}` | String (int) | 없음 | 현재 좌석 선택 중인 인원 수 |
+| `queue:entry:{userId}` | String | 5분 | 입장 토큰 (validate용) |
+| `queue:admitted:{userId}` | String | 없음 | 슬롯 점유 플래그 (DECR 보장용) |
+
+### 12.4 Lazy Expiration
+
+myRedis는 TTL 만료를 `GET` 호출 시점에만 확인한다.
+
+- 아무도 조회하지 않으면 만료된 키가 메모리에 남아있다
+- 실제 Redis는 추가로 백그라운드에서 랜덤 샘플링해 만료 키를 정리한다 (Active Expiration)
+- 현재 myRedis에는 Active Expiration이 없어 장기 운영 시 메모리 누수 가능성이 있다
+
+### 12.5 admitted 플래그가 필요한 이유
+
+```
+entry 토큰 TTL 만료 시나리오:
+  queue:entry:user001    → TTL 5분 후 자동 삭제
+  queue:admitted:user001 → TTL 없어서 그대로 남음
+  queue:active:count     → 여전히 1 (DECR 안 됨)
+
+release() 호출 시:
+  admitted 확인 → 있음 → DECR 가능
+  entry 삭제 (이미 없어도 no-op)
+  admitted 삭제
+```
+
+entry 토큰이 만료됐어도 admitted 플래그가 있으면 슬롯 반납이 가능하다.  
+admitted 없이 entry만으로 관리하면 TTL 만료 후 슬롯이 영구 점유된다.
+
+### 12.6 스케줄러 기반 입장 허가
+
+클라이언트 폴링 시 입장 허가를 결정하면 동시 요청이 모두 "슬롯 있음"으로 판단해 cap을 초과할 수 있다.  
+스케줄러가 2초마다 단독으로 입장 허가를 결정하고 Redis에 토큰을 미리 저장해두면, 클라이언트 폴링은 그 결과를 읽기만 한다.
+
+```
+스케줄러 (2초마다, 단독 실행)
+  slotAvailable = MAX_CAP - active:count
+  if slotAvailable > 0:
+    ZPOPMIN queue:sorted N
+    → 각 userId에 entry 토큰 발급
+    → admitted 플래그 저장
+    → INCR active:count
+
+클라이언트 폴링 (3초마다, 읽기만)
+  GET queue:entry:{userId}
+  → 있으면 READY
+  → 없으면 WAITING + 현재 순위
+```
+
+### 12.7 전체 흐름 다이어그램
+
+```mermaid
+flowchart TD
+    A([로그인]) --> B[POST /queue/enter]
+    B --> C{이미 입장 토큰 있음?}
+    C -- Yes --> D([READY 반환])
+    C -- No --> E{대기열에 있음?}
+    E -- Yes --> F[현재 순위 반환]
+    E -- No --> G[ZADD queue:sorted]
+    G --> F
+    F --> H[프론트 3초마다 폴링]
+
+    H --> I[GET /queue/status]
+    I --> J{entry 토큰 있음?}
+    J -- Yes --> K([READY + entryToken])
+    J -- No --> L[ZRANK 순위 반환]
+    L --> H
+
+    M[스케줄러 2초마다] --> N{슬롯 남음?\nMAX_CAP - active:count}
+    N -- No --> M
+    N -- Yes --> O[ZPOPMIN queue:sorted]
+    O --> P[SET queue:entry TTL 5분\nSET queue:admitted TTL 없음\nINCR active:count]
+    P --> M
+
+    K --> Q[localStorage에 entryToken 저장]
+    Q --> R[/seats 진입]
+    R --> S[GET /queue/validate]
+    S --> T{Redis에 entry 토큰 살아있음?}
+    T -- Yes --> U([좌석 선택 화면])
+    T -- No --> V[POST /queue/release]
+    V --> W[admitted 확인\nDECR active:count\nadmitted 삭제]
+    W --> X([/queue 로 이동])
+
+    U --> Y[결제 완료 or 이탈]
+    Y --> V
+```
+
+### 12.8 현재 구현의 한계
+
+- **Active Expiration 없음**: myRedis는 조회 시점에만 TTL 확인. 장기 운영 시 만료 키가 메모리에 잔류.
+- **스케줄러 단일 이벤트**: `EVENT_ID = "EVT2026-001"` 하드코딩. 다중 이벤트 운영 시 DB 기반 이벤트 목록 조회로 변경 필요.
+- **원자성 보장 없음**: 스케줄러의 ZPOPMIN → SET → INCR 과정이 원자적이지 않아 서버 여러 대 운영 시 race condition 가능. Lua 스크립트 또는 분산 락으로 해결 가능.
+- **cap 고정값**: 현재 MAX_ACTIVE_CAP = 5 하드코딩. 잔여 좌석 수 기반 동적 조정 또는 서버 부하 기반 조정으로 발전 가능.
