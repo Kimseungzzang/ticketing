@@ -10,8 +10,8 @@ group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
 tasks.withType<JavaCompile>().configureEach {
-	sourceCompatibility = "21"
-	targetCompatibility = "21"
+	sourceCompatibility = "17"
+	targetCompatibility = "17"
 }
 
 repositories {
@@ -42,7 +42,7 @@ dependencies {
 kotlin {
 	compilerOptions {
 		freeCompilerArgs.addAll("-Xjsr305=strict", "-Xannotation-default-target=param-property")
-		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
 	}
 }
 

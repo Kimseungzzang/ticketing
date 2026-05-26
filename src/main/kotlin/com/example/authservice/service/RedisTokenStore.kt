@@ -63,6 +63,130 @@ class RedisTokenStore(
         }
     }
 
+    // ── 범용 키 조작 (큐 서비스에서 사용) ────────────────────────────────────
+
+    fun getKey(key: String): String? {
+        val response = runCatching {
+            sendCommandWithReconnect("GET", key)
+        }.getOrElse { return null }
+        return when (response) {
+            is RespValue.BulkString -> response.value
+            RespValue.NullBulkString -> null
+            else -> null
+        }
+    }
+
+    fun setKey(key: String, value: String, ttlSec: Long) {
+        runCatching {
+            if (ttlSec < 0) {
+                // TTL 없이 저장
+                sendCommandWithReconnect("SET", key, value)
+            } else {
+                sendCommandWithReconnect("SET", key, value, "EX", ttlSec.toString())
+            }
+        }
+    }
+
+    fun delKey(vararg keys: String) {
+        runCatching {
+            sendCommandWithReconnect("DEL", *keys)
+        }
+    }
+
+    fun incrKey(key: String): Long {
+        val response = runCatching {
+            sendCommandWithReconnect("INCR", key)
+        }.getOrElse { return 0L }
+        return (response as? RespValue.Integer)?.value ?: 0L
+    }
+
+    fun decrKey(key: String): Long {
+        val response = runCatching {
+            sendCommandWithReconnect("DECR", key)
+        }.getOrElse { return 0L }
+        return (response as? RespValue.Integer)?.value ?: 0L
+    }
+
+    // ── Sorted Set (대기열) ───────────────────────────────────────────────────
+
+    /** member가 이미 있으면 score만 갱신, 없으면 추가 후 1 반환 */
+    fun zadd(key: String, score: Long, member: String): Long {
+        val response = runCatching {
+            sendCommandWithReconnect("ZADD", key, score.toString(), member)
+        }.getOrElse { return 0L }
+        return (response as? RespValue.Integer)?.value ?: 0L
+    }
+
+    /** 0-indexed 순위 반환, 없으면 null */
+    fun zrank(key: String, member: String): Long? {
+        val response = runCatching {
+            sendCommandWithReconnect("ZRANK", key, member)
+        }.getOrElse { return null }
+        return when (response) {
+            is RespValue.Integer -> response.value
+            else -> null
+        }
+    }
+
+    fun zcard(key: String): Long {
+        val response = runCatching {
+            sendCommandWithReconnect("ZCARD", key)
+        }.getOrElse { return 0L }
+        return (response as? RespValue.Integer)?.value ?: 0L
+    }
+
+    fun keysAll(): Set<String> {
+        val response = runCatching {
+            sendCommandWithReconnect("KEYS")
+        }.getOrElse { e ->
+            println("[DEBUG] keysAll 예외: ${e.message}")
+            return emptySet()
+        }
+        println("[DEBUG] keysAll 응답 타입: ${response::class.simpleName}, 값: $response")
+        return when (response) {
+            is RespValue.Array -> response.values.filterIsInstance<RespValue.BulkString>().map { it.value }.toSet()
+            else -> emptySet()
+        }
+    }
+
+    fun type(key: String): String {
+        val response = runCatching { sendCommandWithReconnect("TYPE", key) }.getOrElse { return "none" }
+        return (response as? RespValue.SimpleString)?.value ?: "none"
+    }
+
+    /** score 오름차순 전체 멤버 반환 [member, score, member, score, ...] */
+    fun zrangeWithScores(key: String): List<Pair<String, String>> {
+        val response = runCatching {
+            sendCommandWithReconnect("ZRANGE", key, "0", "-1", "WITHSCORES")
+        }.getOrElse { return emptyList() }
+        return when (response) {
+            is RespValue.Array -> {
+                val items = response.values.filterIsInstance<RespValue.BulkString>().map { it.value }
+                items.chunked(2).mapNotNull { if (it.size == 2) it[0] to it[1] else null }
+            }
+            else -> emptyList()
+        }
+    }
+
+    fun ttlSec(key: String): Long {
+        val response = runCatching { sendCommandWithReconnect("TTL", key) }.getOrElse { return -2L }
+        return (response as? RespValue.Integer)?.value ?: -2L
+    }
+
+    /** score 낮은 순으로 count개 꺼내서 member 이름 목록 반환 */
+    fun zpopmin(key: String, count: Int): List<String> {
+        val response = runCatching {
+            sendCommandWithReconnect("ZPOPMIN", key, count.toString())
+        }.getOrElse { return emptyList() }
+        return when (response) {
+            is RespValue.Array -> response.values
+                .filterIsInstance<RespValue.BulkString>()
+                .filterIndexed { index, _ -> index % 2 == 0 }  // 짝수 인덱스 = member (홀수 = score)
+                .map { it.value }
+            else -> emptyList()
+        }
+    }
+
     private fun saveToken(key: String, token: String, ttlMs: Long, label: String) {
         val response = runCatching {
             sendCommandWithReconnect("SET", key, token, "PX", ttlMs.toString())
