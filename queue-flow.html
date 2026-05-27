@@ -1,258 +1,225 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<title>Redis 상태 뷰어</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  background: #04040A;
-  color: #F0EBE0;
-  font-family: 'Segoe UI', monospace, sans-serif;
-  padding: 32px 24px;
-  min-height: 100vh;
-}
-
-header {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  margin-bottom: 32px;
-}
-h1 { color: #D4A83A; font-size: 1.1rem; letter-spacing: 0.25em; text-transform: uppercase; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; animation: pulse 1.5s infinite; }
-.dot.off { background: #ef4444; animation: none; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-.status-text { font-size: 0.72rem; opacity: 0.4; }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 16px;
-}
-
-.card {
-  background: #07070F;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 14px;
-  padding: 18px;
-  transition: border-color 0.3s;
-}
-.card.highlight { border-color: rgba(212,168,58,0.4); }
-
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.key-name {
-  font-family: monospace;
-  font-size: 0.78rem;
-  color: #7C9EF0;
-  word-break: break-all;
-  flex: 1;
-}
-.type-badge {
-  font-size: 0.6rem;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: 20px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.badge-string { background: rgba(164,127,212,0.15); color: #A47FD4; border: 1px solid rgba(164,127,212,0.3); }
-.badge-zset   { background: rgba(124,158,240,0.15); color: #7C9EF0; border: 1px solid rgba(124,158,240,0.3); }
-
-/* String 값 */
-.string-value {
-  font-family: monospace;
-  font-size: 0.82rem;
-  color: #D4A83A;
-  background: rgba(212,168,58,0.07);
-  padding: 8px 12px;
-  border-radius: 8px;
-  word-break: break-all;
-  margin-bottom: 8px;
-}
-.ttl-bar-wrap { margin-top: 4px; }
-.ttl-label { font-size: 0.65rem; opacity: 0.35; margin-bottom: 4px; display: flex; justify-content: space-between; }
-.ttl-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
-.ttl-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #D4A83A, #F0C860); transition: width 1s linear; }
-.no-ttl { font-size: 0.65rem; opacity: 0.25; }
-
-/* Sorted Set */
-.member-list { display: flex; flex-direction: column; gap: 6px; }
-.member-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(124,158,240,0.05);
-  border: 1px solid rgba(124,158,240,0.1);
-  border-radius: 8px;
-  padding: 7px 12px;
-}
-.rank { font-size: 0.65rem; color: #D4A83A; font-weight: 700; min-width: 22px; }
-.member-name { font-family: monospace; font-size: 0.78rem; flex: 1; }
-.member-score { font-size: 0.65rem; opacity: 0.3; font-family: monospace; }
-.empty { font-size: 0.72rem; opacity: 0.25; text-align: center; padding: 12px 0; }
-
-/* 카운터 */
-.counter-display {
-  text-align: center;
-  padding: 10px 0;
-}
-.counter-num { font-size: 3rem; font-weight: 300; color: #D4A83A; line-height: 1; }
-.counter-cap { font-size: 0.72rem; opacity: 0.35; margin-top: 4px; }
-.cap-bar { height: 6px; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; margin-top: 10px; }
-.cap-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #D4A83A, #F0C860); transition: width 0.5s ease; }
-
-/* 빈 상태 */
-.empty-state {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 60px 0;
-  opacity: 0.2;
-  font-size: 0.85rem;
-}
-
-footer { margin-top: 24px; font-size: 0.65rem; opacity: 0.2; text-align: center; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Queue Flow Chart</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #04040A;
+      color: #F0EBE0;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      padding: 40px 24px;
+    }
+    h1 {
+      text-align: center;
+      color: #D4A83A;
+      letter-spacing: 0.3em;
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      text-align: center;
+      color: rgba(240,235,224,0.35);
+      font-size: 0.78rem;
+      margin-bottom: 40px;
+      letter-spacing: 0.12em;
+    }
+    #chart-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: #07070F;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 32px 24px;
+    }
+    #chart-wrap svg {
+      background: transparent !important;
+      max-width: 100%;
+      height: auto;
+    }
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      margin-top: 32px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: rgba(240,235,224,0.5);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+  </style>
 </head>
 <body>
 
-<header>
-  <h1>Redis State</h1>
-  <span class="dot" id="dot"></span>
-  <span class="status-text" id="status-text">연결 중...</span>
-</header>
+<h1>Ticketing — Queue Flow</h1>
+<p class="subtitle">Frontend · Backend API · Redis · Scheduler 전체 흐름</p>
 
-<div class="grid" id="grid">
-  <div class="empty-state">myRedis에 저장된 키가 없습니다</div>
+<div id="chart-wrap">
+<div class="mermaid">
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background":         "#07070F",
+    "primaryColor":       "#0E0E1A",
+    "primaryTextColor":   "#F0EBE0",
+    "primaryBorderColor": "#2A2A3A",
+    "lineColor":          "#4A4A6A",
+    "secondaryColor":     "#0E0E1A",
+    "tertiaryColor":      "#0a0a14",
+    "edgeLabelBackground":"#0E0E1A",
+    "fontFamily":         "Segoe UI, sans-serif",
+    "fontSize":           "13px"
+  }
+}}%%
+flowchart TD
+
+  %% ───────── 진입 ─────────
+  START([" 🧑  사용자 로그인 완료 "])
+  START --> GOTO_QUEUE
+
+  GOTO_QUEUE["📄 /queue 페이지 진입"]
+  GOTO_QUEUE --> HAS_LOCAL{"localStorage\nentryToken 있음?"}
+
+  HAS_LOCAL -- "✅ 있음" --> AUTO_REDIRECT["⚡ /seats 자동 redirect"]
+  HAS_LOCAL -- "❌ 없음" --> CALL_ENTER
+
+  %% ───────── 대기열 진입 ─────────
+  CALL_ENTER["🌐 POST /api/queue/enter"]
+  CALL_ENTER --> ENTER_CHECK{"Redis 기존\n상태 확인"}
+
+  ENTER_CHECK -- "entryToken 이미 있음" --> RET_READY1["→ READY 반환\n(entryToken 포함)"]
+  ENTER_CHECK -- "sorted set에 이미 있음" --> RET_WAIT1["→ WAITING 반환\n(기존 순위)"]
+  ENTER_CHECK -- "신규 진입" --> REDIS_ZADD[("🔴 Redis ZADD\nqueue:sorted:{eventId}\nscore = currentTimeMs")]
+  REDIS_ZADD --> RET_WAIT2["→ WAITING 반환\n(순위 계산)"]
+
+  RET_READY1 --> SAVE_TK1["💾 localStorage\nentryToken 저장"]
+  SAVE_TK1 --> GOTO_SEATS
+
+  RET_WAIT1 --> START_POLL
+  RET_WAIT2 --> START_POLL
+
+  %% ───────── 프론트 폴링 (3초) ─────────
+  START_POLL(["⏱ 폴링 시작 — 3초 간격"])
+  START_POLL --> POLL_STATUS
+
+  POLL_STATUS["🌐 GET /api/queue/status\n?eventId=EVT2026-001"]
+  POLL_STATUS --> STATUS_CHK{"status?"}
+
+  STATUS_CHK -- "WAITING" --> UPDATE_UI["📊 순위 / 진행률 업데이트"]
+  UPDATE_UI --> WAIT3["3초 대기"]
+  WAIT3 --> POLL_STATUS
+
+  STATUS_CHK -- "READY\n+ entryToken" --> STOP_POLL["⏹ 폴링 중단"]
+  STOP_POLL --> SAVE_TK2["💾 localStorage\nentryToken 저장"]
+  SAVE_TK2 --> SHOW_BTN["✨ '좌석 선택하기' 버튼 활성화"]
+  SHOW_BTN --> USER_CLICK["🖱 사용자 클릭"]
+  USER_CLICK --> GOTO_SEATS
+
+  %% ───────── /seats 검증 ─────────
+  GOTO_SEATS["📄 /seats 페이지 진입"]
+  GOTO_SEATS --> CALL_VALIDATE["🌐 GET /api/queue/validate\n?entryToken=..."]
+  CALL_VALIDATE --> REDIS_GET_TK[("🔴 Redis GET\nqueue:entry:{userId}")]
+  REDIS_GET_TK --> VALID{"저장 토큰과\n일치?"}
+
+  VALID -- "✅ 유효" --> SHOW_SEATS["🎭 좌석 선택 화면"]
+  VALID -- "❌ 만료 / 불일치" --> CALL_RELEASE["🌐 POST /api/queue/release"]
+  CALL_RELEASE --> REDIS_DEL[("🔴 Redis DEL admitted\n→ DECR activeCount")]
+  REDIS_DEL --> CLEAR_LS["🗑 localStorage 초기화"]
+  CLEAR_LS --> BACK_Q["/queue 재진입"]
+
+  %% ───────── 결제 완료 / 이탈 ─────────
+  SHOW_SEATS --> DONE_OR_LEAVE{"결제 완료\nor 이탈"}
+  DONE_OR_LEAVE --> REL_SLOT["🌐 POST /api/queue/release"]
+  REL_SLOT --> REDIS_DEL2[("🔴 Redis DEL\nadmitted + entryToken\n→ DECR activeCount")]
+  REDIS_DEL2 --> END_FLOW([" 🏁  종료 "])
+
+  %% ───────── 서버 스케줄러 (2초) ─────────
+  SCH_START(["🔄 QueueScheduler\n2초마다 실행 fixedDelay=2000"])
+  SCH_START --> REDIS_CNT[("🔴 Redis GET\nqueue:active:count:{eventId}")]
+  REDIS_CNT --> CALC["slots = 5 − activeCount"]
+  CALC --> HAS_SLOT{"slots > 0?"}
+
+  HAS_SLOT -- "❌ No\nactiveCount ≥ 5" --> SCH_SKIP["SKIP"]
+  SCH_SKIP --> SCH_START
+
+  HAS_SLOT -- "✅ Yes" --> REDIS_POP[("🔴 Redis ZPOPMIN\nqueue:sorted:{eventId}\nN명 꺼냄")]
+  REDIS_POP --> Q_EMPTY{"대기열\n비어있음?"}
+  Q_EMPTY -- "예" --> SCH_SKIP
+  Q_EMPTY -- "아니오" --> GEN_UUID["🔑 UUID entryToken 생성"]
+  GEN_UUID --> REDIS_SET_TK[("🔴 Redis SET\nqueue:entry:{userId} = token\nTTL 300s")]
+  REDIS_SET_TK --> REDIS_SET_ADM[("🔴 Redis SET\nqueue:admitted:{userId} = eventId\n(TTL 없음)")]
+  REDIS_SET_ADM --> REDIS_INCR[("🔴 Redis INCR\nqueue:active:count")]
+  REDIS_INCR --> SCH_START
+
+  %% ───────── 스타일 ─────────
+  classDef fe      fill:#0f1f3d,stroke:#3B82F6,color:#93C5FD,rx:8
+  classDef api     fill:#0a2218,stroke:#10B981,color:#6EE7B7,rx:8
+  classDef redis   fill:#2a1200,stroke:#F97316,color:#FED7AA,rx:8
+  classDef sched   fill:#160f2a,stroke:#8B5CF6,color:#C4B5FD,rx:8
+  classDef decision fill:#141428,stroke:#4A4A6A,color:#F0EBE0
+  classDef terminal fill:#1a1208,stroke:#D4A83A,color:#D4A83A,rx:12
+
+  class START,END_FLOW terminal
+  class GOTO_QUEUE,HAS_LOCAL,AUTO_REDIRECT,CALL_ENTER,RET_READY1,RET_WAIT1,RET_WAIT2,SAVE_TK1,SAVE_TK2,START_POLL,POLL_STATUS,UPDATE_UI,WAIT3,STOP_POLL,SHOW_BTN,USER_CLICK,GOTO_SEATS,SHOW_SEATS,BACK_Q,CLEAR_LS fe
+  class CALL_VALIDATE,VALID,CALL_RELEASE,DONE_OR_LEAVE,REL_SLOT api
+  class REDIS_ZADD,REDIS_GET_TK,REDIS_DEL,REDIS_DEL2,REDIS_CNT,REDIS_POP,REDIS_SET_TK,REDIS_SET_ADM,REDIS_INCR redis
+  class SCH_START,CALC,HAS_SLOT,SCH_SKIP,Q_EMPTY,GEN_UUID sched
+  class ENTER_CHECK,STATUS_CHK,HAS_SLOT,Q_EMPTY,VALID,DONE_OR_LEAVE decision
+</div>
 </div>
 
-<footer>auth-service :8081/api/debug/redis · 2초마다 자동 갱신</footer>
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#3B82F6"></div>
+    Frontend (Next.js)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#10B981"></div>
+    Backend API (Spring)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#F97316"></div>
+    Redis 조작
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#8B5CF6"></div>
+    Scheduler (2초 주기)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#D4A83A"></div>
+    시작 / 종료
+  </div>
+</div>
 
 <script>
-const API = 'http://localhost:8081/api/debug/redis';
-const MAX_CAP = 5;
-const TTL_MAP = {};  // key -> originalTtl (처음 받은 TTL)
-
-async function fetchAndRender() {
-  try {
-    const res = await fetch(API);
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-
-    setStatus(true);
-    render(data);
-  } catch (e) {
-    setStatus(false);
-  }
-}
-
-function setStatus(ok) {
-  document.getElementById('dot').className = 'dot' + (ok ? '' : ' off');
-  document.getElementById('status-text').textContent = ok
-    ? `연결됨 · ${new Date().toLocaleTimeString()}`
-    : '연결 실패 (myRedis / auth-service 실행 중인지 확인)';
-}
-
-function render(data) {
-  const grid = document.getElementById('grid');
-  const keys = Object.keys(data);
-
-  if (keys.length === 0) {
-    grid.innerHTML = '<div class="empty-state">myRedis에 저장된 키가 없습니다</div>';
-    return;
-  }
-
-  grid.innerHTML = keys.map(key => {
-    const entry = data[key];
-    return entry.type === 'zset' ? renderZset(key, entry) : renderString(key, entry);
-  }).join('');
-}
-
-function renderZset(key, entry) {
-  const members = entry.members || [];
-  const membersHtml = members.length === 0
-    ? `<div class="empty">(비어있음)</div>`
-    : members.map(m => `
-        <div class="member-row">
-          <span class="rank">#${m.rank}</span>
-          <span class="member-name">${m.member}</span>
-          <span class="member-score">${m.score}</span>
-        </div>`).join('');
-
-  return `
-    <div class="card ${members.length > 0 ? 'highlight' : ''}">
-      <div class="card-header">
-        <span class="type-badge badge-zset">Sorted Set</span>
-        <span class="key-name">${key}</span>
-        <span style="font-size:0.7rem;opacity:0.4;">${members.length}개</span>
-      </div>
-      <div class="member-list">${membersHtml}</div>
-    </div>`;
-}
-
-function renderString(key, entry) {
-  const { value, ttl } = entry;
-  const isCounter = key.includes('count');
-  const isToken   = key.includes('entry');
-
-  if (isCounter) {
-    const num = parseInt(value) || 0;
-    const pct = Math.min(100, (num / MAX_CAP) * 100);
-    return `
-      <div class="card highlight">
-        <div class="card-header">
-          <span class="type-badge badge-string">String</span>
-          <span class="key-name">${key}</span>
-        </div>
-        <div class="counter-display">
-          <div class="counter-num">${num}</div>
-          <div class="counter-cap">/ MAX_CAP ${MAX_CAP}</div>
-          <div class="cap-bar"><div class="cap-fill" style="width:${pct}%"></div></div>
-        </div>
-      </div>`;
-  }
-
-  const ttlHtml = ttl < 0
-    ? `<div class="no-ttl">TTL 없음 (영구 저장)</div>`
-    : (() => {
-        if (!TTL_MAP[key]) TTL_MAP[key] = ttl;
-        const orig = TTL_MAP[key];
-        const pct = Math.min(100, (ttl / orig) * 100);
-        const min = Math.floor(ttl / 60);
-        const sec = ttl % 60;
-        return `
-          <div class="ttl-bar-wrap">
-            <div class="ttl-label">
-              <span>TTL</span>
-              <span>${min > 0 ? min + '분 ' : ''}${sec}초 남음</span>
-            </div>
-            <div class="ttl-bar"><div class="ttl-fill" style="width:${pct}%"></div></div>
-          </div>`;
-      })();
-
-  const displayValue = isToken
-    ? value.slice(0, 18) + '...'
-    : value;
-
-  return `
-    <div class="card">
-      <div class="card-header">
-        <span class="type-badge badge-string">String</span>
-        <span class="key-name">${key}</span>
-      </div>
-      <div class="string-value">${displayValue}</div>
-      ${ttlHtml}
-    </div>`;
-}
-
-fetchAndRender();
-setInterval(fetchAndRender, 2000);
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background:         '#07070F',
+      primaryColor:       '#0E0E1A',
+      primaryTextColor:   '#F0EBE0',
+      primaryBorderColor: '#2A2A3A',
+      lineColor:          '#4A4A6A',
+      edgeLabelBackground:'#0E0E1A',
+      fontFamily:         'Segoe UI, sans-serif',
+      fontSize:           '13px',
+    }
+  });
 </script>
 </body>
 </html>
