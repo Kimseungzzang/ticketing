@@ -18,7 +18,7 @@ import org.springframework.web.server.ResponseStatusException
 class AuthService(
     private val userRepository: UserRepository,
     private val jwtService: JwtService,
-    private val redisTokenStore: RedisTokenStore,
+    private val tokenRedisService: TokenRedisService,
     private val passwordEncoder: PasswordEncoder,
 ) {
     @Transactional
@@ -51,13 +51,13 @@ class AuthService(
             ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "유효하지 않은 리프레시 토큰입니다")
 
         if (!jwtService.isValidRefreshToken(refreshToken)) {
-            redisTokenStore.deleteTokens(userId)
+            tokenRedisService.deleteTokens(userId)
             throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "리프레시 토큰이 만료되었거나 유효하지 않습니다")
         }
 
-        val storedRefreshToken = redisTokenStore.getRefreshToken(userId)
+        val storedRefreshToken = tokenRedisService.getRefreshToken(userId)
         if (storedRefreshToken == null || storedRefreshToken != refreshToken) {
-            redisTokenStore.deleteTokens(userId)
+            tokenRedisService.deleteTokens(userId)
             throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "리프레시 토큰이 일치하지 않습니다")
         }
 
@@ -65,12 +65,12 @@ class AuthService(
             .orElseThrow { ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다") }
 
         val newAccessToken = jwtService.generateAccessToken(user.id, user.name)
-        redisTokenStore.saveAccessToken(user.id, newAccessToken, jwtService.accessExpirationMillis())
+        tokenRedisService.saveAccessToken(user.id, newAccessToken, jwtService.accessExpirationMillis())
         return RefreshResponse(accessToken = newAccessToken)
     }
 
     fun logout(userId: String): Map<String, String> {
-        redisTokenStore.deleteTokens(userId)
+        tokenRedisService.deleteTokens(userId)
         return mapOf("message" to "로그아웃되었습니다")
     }
 
@@ -92,8 +92,8 @@ class AuthService(
     private fun issueTokens(user: UserEntity): AuthResponse {
         val accessToken = jwtService.generateAccessToken(user.id, user.name)
         val refreshToken = jwtService.generateRefreshToken(user.id, user.name)
-        redisTokenStore.saveAccessToken(user.id, accessToken, jwtService.accessExpirationMillis())
-        redisTokenStore.saveRefreshToken(user.id, refreshToken, jwtService.refreshExpirationMillis())
+        tokenRedisService.saveAccessToken(user.id, accessToken, jwtService.accessExpirationMillis())
+        tokenRedisService.saveRefreshToken(user.id, refreshToken, jwtService.refreshExpirationMillis())
 
         return AuthResponse(
             accessToken = accessToken,
