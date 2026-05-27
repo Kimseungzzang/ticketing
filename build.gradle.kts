@@ -16,9 +16,17 @@ tasks.withType<JavaCompile>().configureEach {
 
 repositories {
 	mavenCentral()
+	maven {
+		url = uri("https://maven.pkg.github.com/Kimseungzzang/myredis-client-starter")
+		credentials {
+			username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String?
+			password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.token") as String?
+		}
+	}
 }
 
 dependencies {
+	implementation("com.example:myredis-client-starter:1.0.1")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
