@@ -1,8 +1,8 @@
-package com.example.authservice.controller
+package com.example.queueservice.controller
 
-import com.example.authservice.dto.QueueEnterRequest
-import com.example.authservice.dto.QueueStatusResponse
-import com.example.authservice.service.QueueService
+import com.example.queueservice.dto.QueueEnterRequest
+import com.example.queueservice.dto.QueueStatusResponse
+import com.example.queueservice.service.QueueService
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/queue")
 class QueueController(private val queueService: QueueService) {
 
-    /** 로그인 후 대기열 진입. 이미 진입했으면 현재 상태 반환. */
     @PostMapping("/enter")
     fun enter(
         @AuthenticationPrincipal userId: String,
@@ -24,7 +23,6 @@ class QueueController(private val queueService: QueueService) {
     ): ResponseEntity<QueueStatusResponse> =
         ResponseEntity.ok(queueService.enter(userId, req.eventId))
 
-    /** 폴링용 — 현재 순위 또는 입장 토큰 반환. */
     @GetMapping("/status")
     fun status(
         @AuthenticationPrincipal userId: String,
@@ -32,10 +30,6 @@ class QueueController(private val queueService: QueueService) {
     ): ResponseEntity<QueueStatusResponse> =
         ResponseEntity.ok(queueService.status(userId, eventId))
 
-    /**
-     * 좌석 선택 페이지 진입 전 토큰 검증.
-     * Redis에 살아있는 토큰인지 확인.
-     */
     @GetMapping("/validate")
     fun validate(
         @AuthenticationPrincipal userId: String,
@@ -49,7 +43,6 @@ class QueueController(private val queueService: QueueService) {
         }
     }
 
-    /** 좌석 선택 완료 or 이탈 시 슬롯 반납. */
     @PostMapping("/release")
     fun release(
         @AuthenticationPrincipal userId: String,
