@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 
 @Service
-class TokenRedisService(private val redisTokenStore: RedisTokenStore) {
+class TokenRedisService(private val myRedisTemplate: MyRedisTemplate) {
 
     companion object {
         private fun accessKey(userId: String) = "auth:jwt:access:$userId"
@@ -14,22 +14,22 @@ class TokenRedisService(private val redisTokenStore: RedisTokenStore) {
 
     fun saveAccessToken(userId: String, token: String, ttlMs: Long) {
         val saved = runCatching {
-            redisTokenStore.setKey(accessKey(userId), token, ttlMs / 1000)
+            myRedisTemplate.setKey(accessKey(userId), token, ttlMs / 1000)
         }.isSuccess
         if (!saved) throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 액세스 토큰 저장 실패")
     }
 
     fun saveRefreshToken(userId: String, token: String, ttlMs: Long) {
         val saved = runCatching {
-            redisTokenStore.setKey(refreshKey(userId), token, ttlMs / 1000)
+            myRedisTemplate.setKey(refreshKey(userId), token, ttlMs / 1000)
         }.isSuccess
         if (!saved) throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 리프레시 토큰 저장 실패")
     }
 
     fun getRefreshToken(userId: String): String? =
-        redisTokenStore.getKey(refreshKey(userId))
+        myRedisTemplate.getKey(refreshKey(userId))
 
     fun deleteTokens(userId: String) {
-        redisTokenStore.delKey(accessKey(userId), refreshKey(userId))
+        myRedisTemplate.delKey(accessKey(userId), refreshKey(userId))
     }
 }

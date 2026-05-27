@@ -1,0 +1,180 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1779850450241,
+  "projectRoot": "/Users/ksjhbrc/Desktop/Ticketing",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "MyRedis": {
+      "path": "MyRedis",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779850450236,
+      "keyFiles": [
+        "build.gradle.kts",
+        "gradlew",
+        "settings.gradle.kts"
+      ]
+    },
+    "auth-service": {
+      "path": "auth-service",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1779850450237,
+      "keyFiles": [
+        "HELP.md",
+        "build.gradle.kts",
+        "gradlew",
+        "gradlew.bat",
+        "mock-users.sql"
+      ]
+    },
+    "frontend": {
+      "path": "frontend",
+      "purpose": null,
+      "fileCount": 11,
+      "lastAccessed": 1779850450238,
+      "keyFiles": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        "eslint.config.mjs",
+        "next-env.d.ts"
+      ]
+    },
+    "MyRedis/src": {
+      "path": "MyRedis/src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1779850450239,
+      "keyFiles": []
+    },
+    "auth-service/bin": {
+      "path": "auth-service/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 0,
+      "lastAccessed": 1779850450239,
+      "keyFiles": []
+    },
+    "auth-service/build": {
+      "path": "auth-service/build",
+      "purpose": "Build output",
+      "fileCount": 2,
+      "lastAccessed": 1779850450240,
+      "keyFiles": [
+        "20260518_8988195377152574154.compiler.options",
+        "resolvedMainClassName"
+      ]
+    },
+    "frontend/app": {
+      "path": "frontend/app",
+      "purpose": "Application code",
+      "fileCount": 4,
+      "lastAccessed": 1779850450240,
+      "keyFiles": [
+        "favicon.ico",
+        "globals.css",
+        "layout.tsx"
+      ]
+    },
+    "frontend/components": {
+      "path": "frontend/components",
+      "purpose": "UI components",
+      "fileCount": 1,
+      "lastAccessed": 1779850450240,
+      "keyFiles": [
+        "StepIndicator.tsx"
+      ]
+    },
+    "frontend/lib": {
+      "path": "frontend/lib",
+      "purpose": "Library code",
+      "fileCount": 1,
+      "lastAccessed": 1779850450241,
+      "keyFiles": [
+        "mock-data.ts"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "queue-flow.html",
+      "accessCount": 2,
+      "lastAccessed": 1779850912564,
+      "type": "file"
+    },
+    {
+      "path": "auth-service/src/main/kotlin/com/example/authservice/controller/QueueController.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779850651845,
+      "type": "file"
+    },
+    {
+      "path": "auth-service/src/main/kotlin/com/example/authservice/service/QueueService.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779850652268,
+      "type": "file"
+    },
+    {
+      "path": "auth-service/src/main/kotlin/com/example/authservice/scheduler/QueueScheduler.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779850653190,
+      "type": "file"
+    },
+    {
+      "path": "frontend/app/queue/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1779850653649,
+      "type": "file"
+    },
+    {
+      "path": "frontend/app/seats/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1779850653892,
+      "type": "file"
+    },
+    {
+      "path": "auth-service/src/main/kotlin/com/example/authservice/service/RedisTokenStore.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779850970526,
+      "type": "file"
+    },
+    {
+      "path": "MyRedis/src/main/kotlin/com/example/myredis/Store.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779851341335,
+      "type": "file"
+    },
+    {
+      "path": "MyRedis/src/main/kotlin/com/example/myredis/Server.kt",
+      "accessCount": 1,
+      "lastAccessed": 1779861372735,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
