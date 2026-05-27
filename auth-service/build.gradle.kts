@@ -1,3 +1,15 @@
+// .env 파일을 Gradle 설정 단계에서 로드 (의존성 해석 전)
+val envProps = java.util.Properties()
+val envFile = file(".env")
+if (envFile.exists()) {
+    envFile.readLines()
+        .filter { it.isNotBlank() && !it.startsWith("#") && it.contains("=") }
+        .forEach { line ->
+            val idx = line.indexOf("=")
+            envProps[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+        }
+}
+
 plugins {
 	kotlin("jvm") version "2.2.21"
 	kotlin("plugin.spring") version "2.2.21"
@@ -19,8 +31,8 @@ repositories {
 	maven {
 		url = uri("https://maven.pkg.github.com/Kimseungzzang/myredis-client-starter")
 		credentials {
-			username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") as String?
-			password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.token") as String?
+			username = System.getenv("GITHUB_ACTOR") ?: envProps["GITHUB_ACTOR"] as String?
+			password = System.getenv("GITHUB_TOKEN") ?: envProps["GITHUB_TOKEN"] as String?
 		}
 	}
 }
