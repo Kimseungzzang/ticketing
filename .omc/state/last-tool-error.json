@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"git rm -r --cached bin/ && git add .gitignore && git commit -m \\\"Remove bin/ from tracking, update .gitignore\\n\\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\\\" && git push ori...",
-  "error": "Exit code 128\nfatal: 'bin/' 경로명세가 어떤 파일과도 일치하지 않습니다",
-  "timestamp": "2026-05-27T06:29:32.131Z",
-  "retry_count": 1
-}
