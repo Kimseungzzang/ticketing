@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { mockEvent, mockSections, SERVICE_FEE } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const AUTH_API = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8081';
+const AUTH_API  = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL  ?? 'http://localhost:8081';
+const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
 const MAX_SEATS = 4;
 
 export default function SeatsPage() {
@@ -25,7 +26,7 @@ export default function SeatsPage() {
       return;
     }
 
-    fetch(`${AUTH_API}/api/queue/validate?entryToken=${entryToken}`, {
+    fetch(`${QUEUE_API}/api/queue/validate?entryToken=${entryToken}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then(res => {
@@ -34,7 +35,7 @@ export default function SeatsPage() {
       })
       .catch(() => {
         // 토큰 만료 or 없음 → 슬롯 반납 후 대기열로
-        fetch(`${AUTH_API}/api/queue/release?eventId=${eventId}`, {
+        fetch(`${QUEUE_API}/api/queue/release?eventId=${eventId}`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}` },
         }).finally(() => {

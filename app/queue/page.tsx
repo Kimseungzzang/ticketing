@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { mockEvent } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const AUTH_API = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8081';
+const AUTH_API  = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL  ?? 'http://localhost:8081';
+const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
 const EVENT_ID = 'EVT2026-001';
 const POLL_INTERVAL_MS = 3000;
 
@@ -37,7 +38,7 @@ export default function QueuePage() {
     if (!token) { router.push('/'); return; }
 
     try {
-      const res = await fetch(`${AUTH_API}/api/queue/status?eventId=${EVENT_ID}`, {
+      const res = await fetch(`${QUEUE_API}/api/queue/status?eventId=${EVENT_ID}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('상태 조회 실패');
@@ -67,7 +68,7 @@ export default function QueuePage() {
     }
 
     // 대기열 진입
-    fetch(`${AUTH_API}/api/queue/enter`, {
+    fetch(`${QUEUE_API}/api/queue/enter`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
