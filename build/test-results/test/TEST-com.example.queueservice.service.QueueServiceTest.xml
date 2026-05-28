@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.queueservice.service.QueueServiceTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-05-28T13:24:35.848Z" hostname="Kimseungzzang.local" time="0.846">
+  <properties/>
+  <testcase name="status - 입장 토큰 있으면 READY 반환()" classname="com.example.queueservice.service.QueueServiceTest" time="0.656"/>
+  <testcase name="enter - 이미 입장 토큰 있으면 READY 반환()" classname="com.example.queueservice.service.QueueServiceTest" time="0.004"/>
+  <testcase name="release - activeCount가 0이면 decrKey 호출하지 않음()" classname="com.example.queueservice.service.QueueServiceTest" time="0.151"/>
+  <testcase name="enter - 신규 진입 시 대기열에 추가되고 WAITING 반환()" classname="com.example.queueservice.service.QueueServiceTest" time="0.007"/>
+  <testcase name="status - 대기열에 없으면 NOT_IN_QUEUE 반환()" classname="com.example.queueservice.service.QueueServiceTest" time="0.002"/>
+  <testcase name="release - 정상 반납 시 decrKey 호출()" classname="com.example.queueservice.service.QueueServiceTest" time="0.005"/>
+  <testcase name="enter - 이미 대기 중이면 WAITING 반환()" classname="com.example.queueservice.service.QueueServiceTest" time="0.004"/>
+  <testcase name="validateEntryToken - 저장된 토큰 없으면 false()" classname="com.example.queueservice.service.QueueServiceTest" time="0.001"/>
+  <testcase name="release - admittedKey 없으면 아무 것도 안함()" classname="com.example.queueservice.service.QueueServiceTest" time="0.003"/>
+  <testcase name="validateEntryToken - 저장된 토큰과 일치하면 true()" classname="com.example.queueservice.service.QueueServiceTest" time="0.001"/>
+  <system-out><![CDATA[[QUEUE] release  userId=user1  activeCount=2
+]]></system-out>
+  <system-err><![CDATA[Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (/Users/kimseungzzang/.gradle/caches/modules-2/files-2.1/net.bytebuddy/byte-buddy-agent/1.17.8/f09415827a71be7ed621c7bd02550678f28bc81c/byte-buddy-agent-1.17.8.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+]]></system-err>
+</testsuite>
