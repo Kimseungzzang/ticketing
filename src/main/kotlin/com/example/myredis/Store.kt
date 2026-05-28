@@ -16,6 +16,23 @@ object Store {
         printDebugTable("SET $key")
     }
 
+    /** NX: 키가 없을 때만 저장. 성공하면 true, 이미 존재하면 false */
+    fun setNx(key: String, value: String, ttlMs: Long? = null): Boolean {
+        var isSet = false
+        // compute는 원자적 — 동시 요청이 와도 하나만 성공
+        map.compute(key) { _, existing ->
+            val isExpired = existing?.expiresAt != null && System.currentTimeMillis() > existing.expiresAt
+            if (existing == null || isExpired) {
+                isSet = true
+                Entry(value, ttlMs?.let { System.currentTimeMillis() + it })
+            } else {
+                existing
+            }
+        }
+        if (isSet) printDebugTable("SET $key NX")
+        return isSet
+    }
+
     fun get(key: String): String? {
         val entry = map[key] ?: return null
         if (entry.expiresAt != null && System.currentTimeMillis() > entry.expiresAt) {

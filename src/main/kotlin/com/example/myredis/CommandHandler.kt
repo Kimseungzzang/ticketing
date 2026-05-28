@@ -38,6 +38,7 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
         val key = args[1]
         val value = args[2]
         var ttlMs: Long? = null
+        var nx = false
         var i = 3
         while (i < args.size) {
             when (args[i].uppercase()) {
@@ -45,11 +46,17 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
                     ?: return RespEncoder.error("ERR invalid expire time")) * 1000
                 "PX" -> ttlMs = args.getOrNull(++i)?.toLongOrNull()
                     ?: return RespEncoder.error("ERR invalid expire time")
+                "NX" -> nx = true
             }
             i++
         }
-        Store.set(key, value, ttlMs)
-        return RespEncoder.simpleString("OK")
+        return if (nx) {
+            if (Store.setNx(key, value, ttlMs)) RespEncoder.simpleString("OK")
+            else RespEncoder.nullBulk()
+        } else {
+            Store.set(key, value, ttlMs)
+            RespEncoder.simpleString("OK")
+        }
     }
 
     private fun handleGet(args: List<String>): String {
