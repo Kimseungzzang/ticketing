@@ -1,5 +1,6 @@
 package com.example.authservice.service
 
+import com.example.myredisclient.MyRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
@@ -15,16 +16,22 @@ class TokenRedisService(private val myRedisTemplate: MyRedisTemplate) {
     fun saveAccessToken(userId: String, token: String, ttlMs: Long) {
         val saved = runCatching {
             myRedisTemplate.setKey(accessKey(userId), token, ttlMs / 1000)
+        }.onFailure { e ->
+            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 액세스 토큰 저장 실패", e)
         }.isSuccess
         if (!saved) throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 액세스 토큰 저장 실패")
     }
 
     fun saveRefreshToken(userId: String, token: String, ttlMs: Long) {
-        val saved = runCatching {
+        runCatching {
             myRedisTemplate.setKey(refreshKey(userId), token, ttlMs / 1000)
-        }.isSuccess
-        if (!saved) throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 리프레시 토큰 저장 실패")
+        }.onFailure { e ->
+            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Redis에 리프레시 토큰 저장 실패", e)
+        }
     }
+
+    fun getAccessToken(userId: String): String? =
+        myRedisTemplate.getKey(accessKey(userId))
 
     fun getRefreshToken(userId: String): String? =
         myRedisTemplate.getKey(refreshKey(userId))

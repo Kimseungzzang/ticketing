@@ -29,3 +29,8 @@ data class RefreshRequest(
     @field:NotBlank(message = "리프레시 토큰을 입력해 주세요")
     val refreshToken: String,
 )
+
+data class VerifyRequest(
+    @field:NotBlank(message = "토큰을 입력해 주세요")
+    val token: String,
+)

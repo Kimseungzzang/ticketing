@@ -22,3 +22,5 @@ data class VerifyResponse(
     val userId: String? = null,
     val name: String? = null,
 )
+
+data class LogoutResponse(val message: String = "로그아웃되었습니다")

@@ -3,6 +3,7 @@ package com.example.authservice.controller
 import com.example.authservice.dto.LoginRequest
 import com.example.authservice.dto.RefreshRequest
 import com.example.authservice.dto.RegisterRequest
+import com.example.authservice.dto.VerifyRequest
 import com.example.authservice.service.AuthService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -39,6 +40,6 @@ class AuthController(private val authService: AuthService) {
         ResponseEntity.ok(authService.me(userId))
 
     @PostMapping("/verify")
-    fun verify(@RequestBody body: Map<String, String>) =
-        ResponseEntity.ok(authService.verify(body["token"] ?: ""))
+    fun verify(@Valid @RequestBody req: VerifyRequest) =
+        ResponseEntity.ok(authService.verify(req.token))
 }

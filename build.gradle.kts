@@ -1,5 +1,7 @@
+import java.util.Properties
+
 // .env 파일을 Gradle 설정 단계에서 로드 (의존성 해석 전)
-val envProps = java.util.Properties()
+val envProps = Properties()
 val envFile = file(".env")
 if (envFile.exists()) {
     envFile.readLines()
@@ -22,8 +24,8 @@ group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
 tasks.withType<JavaCompile>().configureEach {
-	sourceCompatibility = "17"
-	targetCompatibility = "17"
+	sourceCompatibility = "21"
+	targetCompatibility = "21"
 }
 
 repositories {
@@ -38,7 +40,7 @@ repositories {
 }
 
 dependencies {
-	implementation("com.example:myredis-client-starter:1.0.1")
+	implementation("com.example:myredis-client-starter:1.0.3")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
@@ -56,13 +58,15 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+	testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 kotlin {
+	jvmToolchain(21)
 	compilerOptions {
 		freeCompilerArgs.addAll("-Xjsr305=strict", "-Xannotation-default-target=param-property")
-		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
 	}
 }
 
