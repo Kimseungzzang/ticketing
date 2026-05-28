@@ -34,7 +34,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.example:myredis-client-starter:1.0.3")
+    implementation("com.example:myredis-client-starter:1.0.4")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
