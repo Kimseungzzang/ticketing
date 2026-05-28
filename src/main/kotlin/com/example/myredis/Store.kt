@@ -91,9 +91,9 @@ object Store {
 
     /** member가 새로 추가되면 1, 이미 있으면 score만 갱신하고 0 반환 */
     fun zadd(key: String, score: Double, member: String): Long {
-        val set = sortedSets.getOrPut(key) { ConcurrentHashMap() }
-        val isNew = !set.containsKey(member)
-        set[member] = score
+        // computeIfAbsent is atomic; prevents two threads from creating separate maps for the same key
+        val set = sortedSets.computeIfAbsent(key) { ConcurrentHashMap() }
+        val isNew = set.put(member, score) == null
         println("[STORE] ZADD $key  score=$score  member=$member  (new=$isNew, size=${set.size})")
         return if (isNew) 1L else 0L
     }
@@ -107,7 +107,9 @@ object Store {
 
     fun zcard(key: String): Long = sortedSets[key]?.size?.toLong() ?: 0L
 
-    /** score 가장 낮은 count개를 꺼내서 반환 (제거됨) */
+    /** score 가장 낮은 count개를 꺼내서 반환 (제거됨)
+     *  Note: sort-then-remove is not atomic. Concurrent ZPOPMIN calls may observe
+     *  the same snapshot before removal completes. Acceptable for single-scheduler use. */
     fun zpopmin(key: String, count: Int = 1): List<Pair<String, Double>> {
         val set = sortedSets[key] ?: return emptyList()
         val popped = set.entries.sortedBy { it.value }.take(count)
