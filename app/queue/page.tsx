@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { mockEvent } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const AUTH_API  = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL  ?? 'http://localhost:8081';
 const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
 const EVENT_ID = 'EVT2026-001';
 const POLL_INTERVAL_MS = 3000;

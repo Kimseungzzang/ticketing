@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { mockEvent, mockSections, SERVICE_FEE } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const AUTH_API  = process.env.NEXT_PUBLIC_AUTH_BASE_API_URL  ?? 'http://localhost:8081';
 const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
 const MAX_SEATS = 4;
 
@@ -26,8 +25,11 @@ export default function SeatsPage() {
       return;
     }
 
-    fetch(`${QUEUE_API}/api/queue/validate?entryToken=${entryToken}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    fetch(`${QUEUE_API}/api/queue/validate`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Entry-Token': entryToken,
+      },
     })
       .then(res => {
         if (!res.ok) throw new Error('invalid token');
