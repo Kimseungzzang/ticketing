@@ -4,5 +4,6 @@ bin/
 .idea/
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 .env
 out/
