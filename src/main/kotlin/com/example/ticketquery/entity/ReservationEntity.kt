@@ -22,9 +22,10 @@ class ReservationEntity(
     @Column(name = "seat_id", nullable = false)
     val seatId: String,
 
+    // 이벤트 consumer가 갱신하는 projection이므로 가변(var).
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    val status: ReservationStatus,
+    var status: ReservationStatus,
 
     @Column(name = "created_at", nullable = false)
     val createdAt: Instant,
