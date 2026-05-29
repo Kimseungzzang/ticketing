@@ -12,8 +12,9 @@ class QueueService(
     companion object {
         const val MAX_ACTIVE_CAP = 5
         const val ENTRY_TOKEN_TTL_SEC = 300L
+        private const val QUEUE_KEY_PREFIX = "queue:sorted:"
 
-        fun queueKey(eventId: String)       = "queue:sorted:$eventId"
+        fun queueKey(eventId: String)       = "$QUEUE_KEY_PREFIX$eventId"
         fun activeCountKey(eventId: String) = "queue:active:count:$eventId"
         fun entryTokenKey(userId: String)   = "queue:entry:$userId"
         fun admittedKey(userId: String)     = "queue:admitted:$userId"
@@ -97,6 +98,14 @@ class QueueService(
         val stored = myRedisTemplate.getKey(entryTokenKey(userId))
         return stored != null && stored == entryToken
     }
+
+    fun waitingEventIds(): Set<String> =
+        myRedisTemplate.keysAll()
+            .mapNotNull { key ->
+                if (key.startsWith(QUEUE_KEY_PREFIX)) key.removePrefix(QUEUE_KEY_PREFIX) else null
+            }
+            .filter { eventId -> myRedisTemplate.zcard(queueKey(eventId)) > 0 }
+            .toSet()
 
     fun admitFromQueue(eventId: String) {
         val activeCount    = myRedisTemplate.getKey(activeCountKey(eventId))?.toLongOrNull() ?: 0L

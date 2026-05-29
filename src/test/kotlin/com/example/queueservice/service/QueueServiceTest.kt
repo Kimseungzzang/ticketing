@@ -100,6 +100,27 @@ class QueueServiceTest {
         assertThat(queueService.validateEntryToken(userId, "tok")).isFalse()
     }
 
+    // waitingEventIds
+
+    @Test
+    fun `waitingEventIds - 대기자가 있는 이벤트만 반환`() {
+        val waitingEventId = "EVT2026-002"
+        whenever(myRedisTemplate.keysAll()).thenReturn(
+            setOf(
+                QueueService.queueKey(eventId),
+                QueueService.queueKey(waitingEventId),
+                QueueService.activeCountKey(eventId),
+                "queue:entry:$userId",
+            )
+        )
+        whenever(myRedisTemplate.zcard(QueueService.queueKey(eventId))).thenReturn(0L)
+        whenever(myRedisTemplate.zcard(QueueService.queueKey(waitingEventId))).thenReturn(2L)
+
+        val result = queueService.waitingEventIds()
+
+        assertThat(result).containsExactly(waitingEventId)
+    }
+
     // release
 
     @Test
