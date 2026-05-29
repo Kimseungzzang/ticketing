@@ -100,19 +100,23 @@ object Store {
 
     /** member가 새로 추가되면 1, 이미 있으면 score만 갱신하고 0 반환 */
     fun zadd(key: String, score: Double, member: String): Long {
-        val entry = map.compute(key) { _, existing ->
+        var result = 0L
+        var sizeAfter = 0
+        map.compute(key) { _, existing ->
             val live = if (existing != null && existing.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
-            when {
+            val target = when {
                 live == null -> Entry(ZSetValue(), null)
                 live.value is ZSetValue -> live
                 else -> throw WrongTypeException()
             }
-        }!!
-        val zset = entry.value as? ZSetValue ?: throw WrongTypeException()
-        // computeIfAbsent on the inner map is atomic for the same key
-        val isNew = zset.members.put(member, score) == null
-        println("[STORE] ZADD $key  score=$score  member=$member  (new=$isNew, size=${zset.members.size})")
-        return if (isNew) 1L else 0L
+            val zset = target.value as? ZSetValue ?: throw WrongTypeException()
+            val isNew = zset.members.put(member, score) == null
+            result = if (isNew) 1L else 0L
+            sizeAfter = zset.members.size
+            target
+        }
+        println("[STORE] ZADD $key  score=$score  member=$member  (new=${result == 1L}, size=$sizeAfter)")
+        return result
     }
 
     /** score 오름차순 기준 0-indexed 순위 반환, 없으면 null */
@@ -129,16 +133,24 @@ object Store {
         return entry.value.members.size.toLong()
     }
 
-    /** score 가장 낮은 count개를 꺼내서 반환 (제거됨)
-     *  Note: sort-then-remove is not atomic. Concurrent ZPOPMIN calls may observe
-     *  the same snapshot before removal completes. Acceptable for single-scheduler use. */
+    /** score 가장 낮은 count개를 꺼내서 반환 (제거됨) */
     fun zpopmin(key: String, count: Int = 1): List<Pair<String, Double>> {
-        val entry = getEntry(key) ?: return emptyList()
-        if (entry.value !is ZSetValue) throw WrongTypeException()
-        val popped = entry.value.members.entries.sortedBy { it.value }.take(count)
-        popped.forEach { entry.value.members.remove(it.key) }
-        println("[STORE] ZPOPMIN $key  count=$count  popped=${popped.map { it.key }}")
-        return popped.map { it.key to it.value }
+        if (count <= 0) return emptyList()
+        var popped: List<Pair<String, Double>> = emptyList()
+        map.compute(key) { _, existing ->
+            val live = if (existing != null && existing.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
+            if (live == null) return@compute null
+            if (live.value !is ZSetValue) throw WrongTypeException()
+            val zset = live.value
+            val picked = zset.members.entries
+                .sortedBy { it.value }
+                .take(count)
+            picked.forEach { zset.members.remove(it.key) }
+            popped = picked.map { it.key to it.value }
+            live
+        }
+        println("[STORE] ZPOPMIN $key  count=$count  popped=${popped.map { it.first }}")
+        return popped
     }
 
     /** score 오름차순으로 전체 member 반환 */
