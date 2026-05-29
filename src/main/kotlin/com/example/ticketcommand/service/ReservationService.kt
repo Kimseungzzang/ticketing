@@ -1,16 +1,17 @@
 package com.example.ticketcommand.service
 
+import com.example.ticketcommand.entity.OutboxEvent
 import com.example.ticketcommand.entity.ReservationEntity
 import com.example.ticketcommand.entity.ReservationStatus
 import com.example.ticketcommand.entity.SeatStatus
 import com.example.ticketcommand.event.ReservationEvent
-import com.example.ticketcommand.event.ReservationEventBatch
 import com.example.ticketcommand.event.ReservationEventType
+import com.example.ticketcommand.repository.OutboxRepository
 import com.example.ticketcommand.repository.ReservationRepository
 import com.example.ticketcommand.repository.SeatRepository
-import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import tools.jackson.databind.ObjectMapper
 import java.time.Instant
 import java.util.UUID
 
@@ -22,9 +23,10 @@ class InvalidReservationStateException(message: String) : RuntimeException(messa
 class ReservationService(
     private val seatRepository: SeatRepository,
     private val reservationRepository: ReservationRepository,
-    // 도메인 이벤트는 트랜잭션 내부에서 publish하고, 실제 MyKafka 발행은
-    // ReservationEventPublisher가 AFTER_COMMIT 단계에서 처리한다.
-    private val eventPublisher: ApplicationEventPublisher,
+    // 이벤트는 비즈니스 데이터와 같은 트랜잭션에서 outbox 테이블에 저장한다(transactional outbox).
+    // 실제 MyKafka 발행은 OutboxRelay가 커밋된 행을 폴링해 처리 → 커밋되면 유실 없음.
+    private val outboxRepository: OutboxRepository,
+    private val objectMapper: ObjectMapper,
 ) {
     @Transactional
     fun reserve(userId: String, seatIds: List<String>): List<ReservationEntity> {
@@ -101,8 +103,13 @@ class ReservationService(
             occurredAt = Instant.now(),
         )
 
-    // 작업당 ApplicationEvent 1개(배치)만 발행. 커밋 후 ReservationEventPublisher가 MyKafka로 보낸다.
+    // 이벤트들을 outbox 행으로 변환해 **현재 트랜잭션 안에서** 저장한다.
+    // 비즈니스 데이터(seat/reservation)와 한 커밋으로 묶이므로, 커밋되면 이벤트는 절대 유실되지 않는다.
     private fun publish(events: List<ReservationEvent>) {
-        if (events.isNotEmpty()) eventPublisher.publishEvent(ReservationEventBatch(events))
+        if (events.isEmpty()) return
+        val rows = events.map {
+            OutboxEvent(seatId = it.seatId, payload = objectMapper.writeValueAsString(it))
+        }
+        outboxRepository.saveAll(rows)
     }
 }

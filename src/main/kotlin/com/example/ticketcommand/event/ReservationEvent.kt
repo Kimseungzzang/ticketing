@@ -17,7 +17,3 @@ data class ReservationEvent(
     val createdAt: Instant,        // reservation 생성 시각 (read model row 재현용)
     val occurredAt: Instant,       // 이벤트 발생 시각
 )
-
-// 한 번의 비즈니스 작업(reserve N좌석 / confirm / cancel)이 만든 이벤트 묶음.
-// 작업당 ApplicationEvent 1개만 발행 → 리스너가 파티션별로 묶어 produceBatch 한 번씩 보낸다.
-data class ReservationEventBatch(val events: List<ReservationEvent>)
