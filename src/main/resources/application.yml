@@ -14,5 +14,11 @@ spring:
       hibernate:
         format_sql: false
 
+mykafka:
+  host: ${KAFKA_HOST:localhost}
+  port: ${KAFKA_PORT:9092}
+  producer:
+    pool-size: ${KAFKA_PRODUCER_POOL_SIZE:8}   # 동시 발행 connection 수
+
 server:
   port: ${PORT:8082}

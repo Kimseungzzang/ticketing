@@ -26,6 +26,11 @@ dependencies {
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	runtimeOnly("org.postgresql:postgresql")
 
+	// 직접 만든 카프카 클론(client 포함). slf4j-simple은 Spring Boot의 logback과 충돌하므로 제외.
+	implementation("com.example:MyKafka:0.0.1-SNAPSHOT") {
+		exclude(group = "org.slf4j", module = "slf4j-simple")
+	}
+
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
