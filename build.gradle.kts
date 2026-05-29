@@ -40,7 +40,7 @@ repositories {
 }
 
 dependencies {
-	implementation("com.example:myredis-client-starter:1.0.4")
+	implementation("com.example:myredis-client-starter:1.0.5")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")

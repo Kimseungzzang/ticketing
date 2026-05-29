@@ -1,5 +1,6 @@
 package com.example.authservice.exception
 
+import com.example.myredisclient.RedisException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -29,6 +30,10 @@ class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException::class)
     fun handleDataIntegrity(e: DataIntegrityViolationException): ResponseEntity<ErrorResponse> =
         ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse("이미 사용 중인 아이디입니다"))
+
+    @ExceptionHandler(RedisException::class)
+    fun handleRedis(e: RedisException): ResponseEntity<ErrorResponse> =
+        ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ErrorResponse("Redis 오류가 발생했습니다"))
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidation(e: MethodArgumentNotValidException): ResponseEntity<ValidationErrorResponse> {
