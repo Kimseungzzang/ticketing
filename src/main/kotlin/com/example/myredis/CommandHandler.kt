@@ -10,25 +10,29 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
             ctx.writeAndFlush(RespEncoder.error("ERR empty command"))
             return
         }
-        val response = when (args[0].uppercase()) {
-            "PING"    -> if (args.size > 1) RespEncoder.bulkString(args[1]) else RespEncoder.simpleString("PONG")
-            "SET"     -> handleSet(args)
-            "GET"     -> handleGet(args)
-            "DEL"     -> handleDel(args)
-            "EXPIRE"  -> handleExpire(args)
-            "TTL"     -> handleTtl(args)
-            "EXISTS"  -> handleExists(args)
-            "KEYS"    -> handleKeys()
-            "TYPE"    -> handleType(args)
-            "ZADD"    -> handleZadd(args)
-            "ZRANK"   -> handleZrank(args)
-            "ZCARD"   -> handleZcard(args)
-            "ZPOPMIN" -> handleZpopmin(args)
-            "ZRANGE"  -> handleZrange(args)
-            "INCR"    -> handleIncr(args)
-            "DECR"    -> handleDecr(args)
-            "COMMAND" -> RespEncoder.simpleString("OK")
-            else      -> RespEncoder.error("ERR unknown command '${args[0]}'")
+        val response = try {
+            when (args[0].uppercase()) {
+                "PING"    -> if (args.size > 1) RespEncoder.bulkString(args[1]) else RespEncoder.simpleString("PONG")
+                "SET"     -> handleSet(args)
+                "GET"     -> handleGet(args)
+                "DEL"     -> handleDel(args)
+                "EXPIRE"  -> handleExpire(args)
+                "TTL"     -> handleTtl(args)
+                "EXISTS"  -> handleExists(args)
+                "KEYS"    -> handleKeys()
+                "TYPE"    -> handleType(args)
+                "ZADD"    -> handleZadd(args)
+                "ZRANK"   -> handleZrank(args)
+                "ZCARD"   -> handleZcard(args)
+                "ZPOPMIN" -> handleZpopmin(args)
+                "ZRANGE"  -> handleZrange(args)
+                "INCR"    -> handleIncr(args)
+                "DECR"    -> handleDecr(args)
+                "COMMAND" -> RespEncoder.simpleString("OK")
+                else      -> RespEncoder.error("ERR unknown command '${args[0]}'")
+            }
+        } catch (e: WrongTypeException) {
+            RespEncoder.error(e.message ?: "WRONGTYPE error")
         }
         ctx.writeAndFlush(response)
     }

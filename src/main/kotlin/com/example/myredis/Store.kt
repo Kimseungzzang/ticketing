@@ -3,28 +3,27 @@ package com.example.myredis
 import java.util.concurrent.ConcurrentHashMap
 
 object Store {
-    private data class Entry(val value: String, val expiresAt: Long?)
+    private data class Entry(val value: RedisValue, val expiresAt: Long?)
     private data class DebugRow(val key: String, val value: String, val ttl: String)
 
     private val map = ConcurrentHashMap<String, Entry>()
 
-    // Sorted Set: key -> (member -> score)
-    private val sortedSets = ConcurrentHashMap<String, ConcurrentHashMap<String, Double>>()
+    // ── String ──────────────────────────────────────────────────────────────
 
     fun set(key: String, value: String, ttlMs: Long? = null) {
-        map[key] = Entry(value, ttlMs?.let { System.currentTimeMillis() + it })
+        map[key] = Entry(StringValue(value), ttlMs?.let { System.currentTimeMillis() + it })
         printDebugTable("SET $key")
     }
 
     /** NX: 키가 없을 때만 저장. 성공하면 true, 이미 존재하면 false */
     fun setNx(key: String, value: String, ttlMs: Long? = null): Boolean {
         var isSet = false
-        // compute는 원자적 — 동시 요청이 와도 하나만 성공
+        // compute is atomic — only one thread succeeds on concurrent requests
         map.compute(key) { _, existing ->
             val isExpired = existing?.expiresAt != null && System.currentTimeMillis() > existing.expiresAt
             if (existing == null || isExpired) {
                 isSet = true
-                Entry(value, ttlMs?.let { System.currentTimeMillis() + it })
+                Entry(StringValue(value), ttlMs?.let { System.currentTimeMillis() + it })
             } else {
                 existing
             }
@@ -34,29 +33,29 @@ object Store {
     }
 
     fun get(key: String): String? {
-        val entry = map[key] ?: return null
-        if (entry.expiresAt != null && System.currentTimeMillis() > entry.expiresAt) {
-            if (map.remove(key, entry)) {
-                printDebugTable("EXPIRED $key")
-            }
-            return null
-        }
-        return entry.value
+        val entry = getEntry(key) ?: return null
+        if (entry.value !is StringValue) throw WrongTypeException()
+        return entry.value.raw
     }
 
     fun del(vararg keys: String): Int {
         val deleted = keys.count { map.remove(it) != null }
-        if (deleted > 0) {
-            printDebugTable("DEL ${keys.joinToString(" ")}")
-        }
+        if (deleted > 0) printDebugTable("DEL ${keys.joinToString(" ")}")
         return deleted
     }
 
     fun expire(key: String, ttlMs: Long): Boolean {
-        val entry = map[key] ?: return false
-        map[key] = entry.copy(expiresAt = System.currentTimeMillis() + ttlMs)
-        printDebugTable("EXPIRE $key")
-        return true
+        var updated = false
+        // compute is atomic — prevents read-then-write race; also filters expired keys
+        map.compute(key) { _, existing ->
+            val live = if (existing?.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
+            if (live == null) null else {
+                updated = true
+                live.copy(expiresAt = System.currentTimeMillis() + ttlMs)
+            }
+        }
+        if (updated) printDebugTable("EXPIRE $key")
+        return updated
     }
 
     fun ttl(key: String): Long {
@@ -64,37 +63,30 @@ object Store {
         val expiresAt = entry.expiresAt ?: return -1L
         val remaining = expiresAt - System.currentTimeMillis()
         return if (remaining <= 0) {
-            if (map.remove(key, entry)) {
-                printDebugTable("EXPIRED $key")
-            }
+            if (map.remove(key, entry)) printDebugTable("EXPIRED $key")
             -2L
         } else {
             remaining / 1000
         }
     }
 
-    fun exists(key: String): Boolean = get(key) != null
+    fun exists(key: String): Boolean = getEntry(key) != null
 
     fun keys(): Set<String> {
         val now = System.currentTimeMillis()
-        val stringKeys = map.entries
+        return map.entries
             .filter { (_, v) -> v.expiresAt == null || v.expiresAt > now }
             .map { it.key }
-        val sortedSetKeys = sortedSets.keys.toList()
-        return (stringKeys + sortedSetKeys).toSet()
+            .toSet()
     }
 
     /** 키 타입 반환: "string" | "zset" | "none" */
-    fun type(key: String): String = when {
-        sortedSets.containsKey(key) -> "zset"
-        map.containsKey(key)        -> "string"
-        else                        -> "none"
-    }
-
-    /** score 오름차순으로 전체 member 반환 */
-    fun zrange(key: String): List<Pair<String, Double>> {
-        val set = sortedSets[key] ?: return emptyList()
-        return set.entries.sortedBy { it.value }.map { it.key to it.value }
+    fun type(key: String): String {
+        val entry = getEntry(key) ?: return "none"
+        return when (entry.value) {
+            is StringValue -> "string"
+            is ZSetValue   -> "zset"
+        }
     }
 
     fun ttlMs(key: String): Long {
@@ -108,31 +100,52 @@ object Store {
 
     /** member가 새로 추가되면 1, 이미 있으면 score만 갱신하고 0 반환 */
     fun zadd(key: String, score: Double, member: String): Long {
-        // computeIfAbsent is atomic; prevents two threads from creating separate maps for the same key
-        val set = sortedSets.computeIfAbsent(key) { ConcurrentHashMap() }
-        val isNew = set.put(member, score) == null
-        println("[STORE] ZADD $key  score=$score  member=$member  (new=$isNew, size=${set.size})")
+        val entry = map.compute(key) { _, existing ->
+            val live = if (existing != null && existing.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
+            when {
+                live == null -> Entry(ZSetValue(), null)
+                live.value is ZSetValue -> live
+                else -> throw WrongTypeException()
+            }
+        }!!
+        val zset = entry.value as? ZSetValue ?: throw WrongTypeException()
+        // computeIfAbsent on the inner map is atomic for the same key
+        val isNew = zset.members.put(member, score) == null
+        println("[STORE] ZADD $key  score=$score  member=$member  (new=$isNew, size=${zset.members.size})")
         return if (isNew) 1L else 0L
     }
 
     /** score 오름차순 기준 0-indexed 순위 반환, 없으면 null */
     fun zrank(key: String, member: String): Long? {
-        val set = sortedSets[key] ?: return null
-        val rank = set.entries.sortedBy { it.value }.indexOfFirst { it.key == member }
+        val entry = getEntry(key) ?: return null
+        if (entry.value !is ZSetValue) throw WrongTypeException()
+        val rank = entry.value.members.entries.sortedBy { it.value }.indexOfFirst { it.key == member }
         return if (rank == -1) null else rank.toLong()
     }
 
-    fun zcard(key: String): Long = sortedSets[key]?.size?.toLong() ?: 0L
+    fun zcard(key: String): Long {
+        val entry = getEntry(key) ?: return 0L
+        if (entry.value !is ZSetValue) throw WrongTypeException()
+        return entry.value.members.size.toLong()
+    }
 
     /** score 가장 낮은 count개를 꺼내서 반환 (제거됨)
      *  Note: sort-then-remove is not atomic. Concurrent ZPOPMIN calls may observe
      *  the same snapshot before removal completes. Acceptable for single-scheduler use. */
     fun zpopmin(key: String, count: Int = 1): List<Pair<String, Double>> {
-        val set = sortedSets[key] ?: return emptyList()
-        val popped = set.entries.sortedBy { it.value }.take(count)
-        popped.forEach { set.remove(it.key) }
+        val entry = getEntry(key) ?: return emptyList()
+        if (entry.value !is ZSetValue) throw WrongTypeException()
+        val popped = entry.value.members.entries.sortedBy { it.value }.take(count)
+        popped.forEach { entry.value.members.remove(it.key) }
         println("[STORE] ZPOPMIN $key  count=$count  popped=${popped.map { it.key }}")
         return popped.map { it.key to it.value }
+    }
+
+    /** score 오름차순으로 전체 member 반환 */
+    fun zrange(key: String): List<Pair<String, Double>> {
+        val entry = getEntry(key) ?: return emptyList()
+        if (entry.value !is ZSetValue) throw WrongTypeException()
+        return entry.value.members.entries.sortedBy { it.value }.map { it.key to it.value }
     }
 
     // ── INCR / DECR ─────────────────────────────────────────────────────────
@@ -140,9 +153,11 @@ object Store {
     fun incr(key: String): Long {
         var result = 0L
         map.compute(key) { _, existing ->
-            val current = existing?.value?.toLongOrNull() ?: 0L
+            val live = if (existing != null && existing.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
+            if (live != null && live.value !is StringValue) throw WrongTypeException()
+            val current = (live?.value as? StringValue)?.raw?.toLongOrNull() ?: 0L
             result = current + 1
-            Entry(result.toString(), existing?.expiresAt)
+            Entry(StringValue(result.toString()), live?.expiresAt)
         }
         println("[STORE] INCR $key  →  $result")
         return result
@@ -151,21 +166,35 @@ object Store {
     fun decr(key: String): Long {
         var result = 0L
         map.compute(key) { _, existing ->
-            val current = existing?.value?.toLongOrNull() ?: 0L
+            val live = if (existing != null && existing.expiresAt != null && System.currentTimeMillis() > existing.expiresAt) null else existing
+            if (live != null && live.value !is StringValue) throw WrongTypeException()
+            val current = (live?.value as? StringValue)?.raw?.toLongOrNull() ?: 0L
             result = current - 1
-            Entry(result.toString(), existing?.expiresAt)
+            Entry(StringValue(result.toString()), live?.expiresAt)
         }
         println("[STORE] DECR $key  →  $result")
         return result
     }
 
+    // ── Internal ────────────────────────────────────────────────────────────
+
+    private fun getEntry(key: String): Entry? {
+        val entry = map[key] ?: return null
+        if (entry.expiresAt != null && System.currentTimeMillis() > entry.expiresAt) {
+            if (map.remove(key, entry)) printDebugTable("EXPIRED $key")
+            return null
+        }
+        return entry
+    }
+
     private fun printDebugTable(action: String) {
         val now = System.currentTimeMillis()
         val rows = map.entries
-            .map { (key, entry) ->
+            .mapNotNull { (key, entry) ->
+                val sv = entry.value as? StringValue ?: return@mapNotNull null
                 DebugRow(
                     key = key,
-                    value = entry.value,
+                    value = sv.raw,
                     ttl = entry.expiresAt?.let { ((it - now).coerceAtLeast(0) / 1000).toString() } ?: "-"
                 )
             }

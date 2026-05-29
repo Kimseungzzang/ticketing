@@ -13,6 +13,12 @@ repositories {
 dependencies {
     implementation("io.netty:netty-all:4.1.115.Final")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {
