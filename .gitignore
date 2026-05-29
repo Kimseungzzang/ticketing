@@ -6,3 +6,6 @@ bin/
 !gradle/wrapper/gradle-wrapper.jar
 .env
 out/
+.DS_Store
+**/.DS_Store
+.omc/
