@@ -40,6 +40,7 @@ class ReservationEventConsumer(
     private var assigned: List<Int> = emptyList()
     private var generation = -1
     private var lastJoinMs = 0L
+    private var needsReconnect = false // 소켓 오류 발생 시 다음 루프에서 재연결
 
     @PostConstruct
     fun start() {
@@ -67,12 +68,26 @@ class ReservationEventConsumer(
 
     private fun loop() {
         while (running.get()) {
+            // 직전 라운드에 소켓 오류가 났으면 먼저 재연결(broker 재시작/소켓 깨짐/wire desync 자가복구).
+            if (needsReconnect) {
+                try {
+                    consumer.reconnect()
+                    needsReconnect = false
+                    lastJoinMs = 0L          // 즉시 재join (broker 재시작 시 코디네이터 멤버십이 초기화됐을 수 있음)
+                    assigned = emptyList()
+                    log.info("consumer reconnected")
+                } catch (e: Exception) {
+                    log.warn("reconnect failed (will retry): {}", e.message)
+                    sleepQuietly(500); continue
+                }
+            }
+
             var processedAny = false
             try {
                 maybeRejoin()
             } catch (e: Exception) {
-                // 토픽 미존재(아직 producer가 안 만듦) 등 → 다음 라운드 재시도.
                 log.warn("joinGroup failed: {}", e.message)
+                needsReconnect = true // 소켓 오류일 수 있음 → 재연결로 자가복구 (topic 미존재면 재연결해도 무해)
             }
             for (partition in assigned) {
                 try {
@@ -91,19 +106,21 @@ class ReservationEventConsumer(
                         result.records.size, partition, result.nextOffset)
                     processedAny = true
                 } catch (e: Exception) {
-                    // 일시적 네트워크 오류 등 → 다음 라운드 재시도.
+                    // 소켓 오류면 다음 라운드에 재연결. (commit/fetch 도중 broker가 죽은 경우 등)
                     log.warn("poll failed on partition {}: {}", partition, e.message)
+                    needsReconnect = true
+                    break // 소켓이 의심되므로 이번 라운드 나머지 파티션은 건너뜀
                 }
             }
-            if (!processedAny) {
-                try {
-                    Thread.sleep(500)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
-            }
+            if (!processedAny && !sleepQuietly(500)) break
         }
+    }
+
+    // 지정 시간 sleep. 인터럽트되면 false 반환(루프 종료 신호).
+    private fun sleepQuietly(ms: Long): Boolean = try {
+        Thread.sleep(ms); true
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt(); false
     }
 
     @PreDestroy
