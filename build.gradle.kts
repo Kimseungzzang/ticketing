@@ -15,6 +15,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 repositories {
+	mavenLocal()   // 독립 배포된 MyKafka client (publishToMavenLocal). JitPack 배포 후엔 jitpack repo로 교체.
 	mavenCentral()
 }
 
@@ -25,10 +26,8 @@ dependencies {
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	runtimeOnly("org.postgresql:postgresql")
 
-	// 직접 만든 카프카 클론(client 포함). slf4j-simple은 Spring Boot의 logback과 충돌하므로 제외.
-	implementation("com.example:MyKafka:0.0.1-SNAPSHOT") {
-		exclude(group = "org.slf4j", module = "slf4j-simple")
-	}
+	// 독립 라이브러리가 된 MyKafka의 client SDK (protocol 전이 포함, netty/slf4j 없음 → exclude 불필요).
+	implementation("com.example.mykafka:client:0.1.0")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
