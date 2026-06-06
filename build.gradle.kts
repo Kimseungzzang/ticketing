@@ -15,8 +15,8 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 repositories {
-	mavenLocal()   // 독립 배포된 MyKafka client (publishToMavenLocal). JitPack 배포 후엔 jitpack repo로 교체.
 	mavenCentral()
+	maven("https://jitpack.io")   // 독립 배포된 MyKafka client (JitPack)
 }
 
 dependencies {
@@ -27,8 +27,8 @@ dependencies {
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	runtimeOnly("org.postgresql:postgresql")
 
-	// 독립 라이브러리가 된 MyKafka의 client SDK (protocol 전이 포함, netty/slf4j 없음 → exclude 불필요).
-	implementation("com.example.mykafka:client:0.1.0")
+	// 독립 라이브러리가 된 MyKafka의 client SDK — JitPack 배포본 (protocol 전이 포함).
+	implementation("com.github.ghals5737.mykafka:client:v0.1.0")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
