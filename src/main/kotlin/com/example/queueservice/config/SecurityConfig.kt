@@ -1,6 +1,6 @@
 package com.example.queueservice.config
 
-import com.example.queueservice.filter.AuthVerifyFilter
+import com.example.queueservice.filter.HeaderAuthFilter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
@@ -14,7 +14,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 
 @Configuration
 @EnableWebSecurity
-class SecurityConfig(private val authVerifyFilter: AuthVerifyFilter) {
+class SecurityConfig(private val headerAuthFilter: HeaderAuthFilter) {
 
     @Bean
     fun filterChain(http: HttpSecurity): SecurityFilterChain =
@@ -25,7 +25,7 @@ class SecurityConfig(private val authVerifyFilter: AuthVerifyFilter) {
             .authorizeHttpRequests { auth ->
                 auth.anyRequest().authenticated()
             }
-            .addFilterBefore(authVerifyFilter, UsernamePasswordAuthenticationFilter::class.java)
+            .addFilterBefore(headerAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
             .build()
 
     @Bean

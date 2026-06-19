@@ -9,12 +9,4 @@ data class QueueStatusResponse(
     val entryToken: String?,  // READY일 때만 존재
 )
 
-data class VerifyResponse(
-    val valid: Boolean,
-    val userId: String? = null,
-    val name: String? = null,
-)
-
 data class QueueMessageResponse(val message: String)
-
-data class VerifyRequest(val token: String)
