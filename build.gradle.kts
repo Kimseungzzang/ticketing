@@ -23,6 +23,7 @@ group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven {
         url = uri("https://maven.pkg.github.com/Kimseungzzang/myredis-client-starter")
@@ -38,7 +39,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-    implementation("org.springframework.kafka:spring-kafka")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
 
