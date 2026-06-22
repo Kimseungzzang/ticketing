@@ -29,7 +29,8 @@ class SeatService(
             .sortedBy { listOf("S", "R", "A").indexOf(it.sectionId) }
 
     fun getAvailability(eventId: String): SeatAvailabilityResponse {
-        val total = seatRepository.countByEventId(eventId)
+        val total = myRedisTemplate.getKey(BookingService.seatsTotalKey(eventId))?.toLongOrNull()
+            ?: seatRepository.countByEventId(eventId)
         val available = myRedisTemplate.getKey(BookingService.seatsRemainingKey(eventId))?.toLongOrNull()
             ?: seatRepository.countByEventIdAndStatus(eventId, SeatStatus.AVAILABLE)
         return SeatAvailabilityResponse(total = total, available = available)

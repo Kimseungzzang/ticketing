@@ -25,6 +25,7 @@ class BookingService(
 ) {
     companion object {
         fun entryTokenKey(userId: String) = "queue:entry:$userId"
+        fun seatsTotalKey(eventId: String) = "booking:seats:total:$eventId"
         fun seatsRemainingKey(eventId: String) = "booking:seats:remaining:$eventId"
         fun seatLockKey(eventId: String, seatId: String) = "booking:lock:$eventId:$seatId"
         fun pendingBookingKey(bookingId: UUID) = "booking:pending:$bookingId"
@@ -94,5 +95,14 @@ class BookingService(
             status = "CONFIRMED",
             createdAt = LocalDateTime.now().toString(),
         )
+    }
+
+    // 결제 실패 시 호출 — Redis 카운터 복원, 잠금 해제
+    fun cancel(bookingId: UUID) {
+        val pending = myRedisTemplate.getKey(pendingBookingKey(bookingId)) ?: return
+        val (_, eventId, seatId) = pending.split("|")
+        myRedisTemplate.incrKey(seatsRemainingKey(eventId))
+        myRedisTemplate.delKey(seatLockKey(eventId, seatId))
+        myRedisTemplate.delKey(pendingBookingKey(bookingId))
     }
 }

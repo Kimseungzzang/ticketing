@@ -30,26 +30,32 @@ class SeatDataInitializer(
 
     override fun run(args: ApplicationArguments) {
         val eventId = "EVT2026-001"
-        if (seatRepository.countByEventId(eventId) > 0) return
 
-        val seats = sections.flatMap { section ->
-            section.rows.flatMap { row ->
-                (1..section.seatsPerRow).map { num ->
-                    val seatId = "${section.id}-$row-$num"
-                    Seat(
-                        id = "$eventId:$seatId",
-                        eventId = eventId,
-                        seatId = seatId,
-                        sectionId = section.id,
-                        sectionName = section.name,
-                        row = row,
-                        number = num,
-                        price = section.price,
-                    )
+        if (seatRepository.countByEventId(eventId) == 0L) {
+            val seats = sections.flatMap { section ->
+                section.rows.flatMap { row ->
+                    (1..section.seatsPerRow).map { num ->
+                        val seatId = "${section.id}-$row-$num"
+                        Seat(
+                            id = "$eventId:$seatId",
+                            eventId = eventId,
+                            seatId = seatId,
+                            sectionId = section.id,
+                            sectionName = section.name,
+                            row = row,
+                            number = num,
+                            price = section.price,
+                        )
+                    }
                 }
             }
+            seatRepository.saveAll(seats)
         }
-        seatRepository.saveAll(seats)
-        myRedisTemplate.setKey(BookingService.seatsRemainingKey(eventId), seats.size.toString(), -1L)
+
+        // 재시작 시 DB 기준으로 Redis 동기화 (myRedis는 in-memory라 재시작 시 초기화됨)
+        val total     = seatRepository.countByEventId(eventId)
+        val available = seatRepository.countByEventIdAndStatus(eventId, com.example.bookingservice.domain.SeatStatus.AVAILABLE)
+        myRedisTemplate.setKey(BookingService.seatsTotalKey(eventId),     total.toString(),     -1L)
+        myRedisTemplate.setKey(BookingService.seatsRemainingKey(eventId), available.toString(), -1L)
     }
 }
