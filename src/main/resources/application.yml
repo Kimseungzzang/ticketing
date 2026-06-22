@@ -19,9 +19,13 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+mykafka:
+  host: ${MYKAFKA_HOST:localhost}
+  port: ${MYKAFKA_PORT:9092}
+
 booking:
   kafka:
     topic: booking-events
   seat:
-    lock-ttl-sec: 10
+    lock-ttl-sec: 300
 

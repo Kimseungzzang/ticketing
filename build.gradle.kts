@@ -32,10 +32,12 @@ repositories {
             password = System.getenv("GITHUB_TOKEN") ?: envProps["GITHUB_TOKEN"] as String? ?: (project.findProperty("githubToken") as String?)
         }
     }
+    maven("https://jitpack.io")
 }
 
 dependencies {
     implementation("com.example:myredis-client-starter:1.0.5")
+    implementation("com.github.ghals5737.mykafka:client:v0.1.0")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

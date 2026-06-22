@@ -1,5 +1,6 @@
 package com.example.bookingservice.controller
 
+import com.example.bookingservice.dto.SeatAvailabilityResponse
 import com.example.bookingservice.dto.SeatSectionResponse
 import com.example.bookingservice.service.SeatService
 import org.springframework.http.ResponseEntity
@@ -15,4 +16,8 @@ class SeatController(private val seatService: SeatService) {
     @GetMapping("/{eventId}")
     fun getSections(@PathVariable eventId: String): ResponseEntity<List<SeatSectionResponse>> =
         ResponseEntity.ok(seatService.getSections(eventId))
+
+    @GetMapping("/{eventId}/availability")
+    fun getAvailability(@PathVariable eventId: String): ResponseEntity<SeatAvailabilityResponse> =
+        ResponseEntity.ok(seatService.getAvailability(eventId))
 }

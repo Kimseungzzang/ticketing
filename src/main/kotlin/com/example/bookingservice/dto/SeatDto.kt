@@ -25,3 +25,8 @@ data class SeatSectionResponse(
     val price: Int,
     val seats: List<SeatResponse>,
 )
+
+data class SeatAvailabilityResponse(
+    val total: Long,
+    val available: Long,
+)

@@ -1,12 +1,19 @@
 package com.example.bookingservice.service
 
+import com.example.bookingservice.domain.SeatStatus
+import com.example.bookingservice.dto.SeatAvailabilityResponse
 import com.example.bookingservice.dto.SeatResponse
 import com.example.bookingservice.dto.SeatSectionResponse
 import com.example.bookingservice.repository.SeatRepository
+import com.example.bookingservice.service.BookingService
+import com.example.myredisclient.MyRedisTemplate
 import org.springframework.stereotype.Service
 
 @Service
-class SeatService(private val seatRepository: SeatRepository) {
+class SeatService(
+    private val seatRepository: SeatRepository,
+    private val myRedisTemplate: MyRedisTemplate,
+) {
 
     fun getSections(eventId: String): List<SeatSectionResponse> =
         seatRepository.findByEventIdOrderBySectionIdAscRowAscNumberAsc(eventId)
@@ -20,4 +27,11 @@ class SeatService(private val seatRepository: SeatRepository) {
                 )
             }
             .sortedBy { listOf("S", "R", "A").indexOf(it.sectionId) }
+
+    fun getAvailability(eventId: String): SeatAvailabilityResponse {
+        val total = seatRepository.countByEventId(eventId)
+        val available = myRedisTemplate.getKey(BookingService.seatsRemainingKey(eventId))?.toLongOrNull()
+            ?: seatRepository.countByEventIdAndStatus(eventId, SeatStatus.AVAILABLE)
+        return SeatAvailabilityResponse(total = total, available = available)
+    }
 }

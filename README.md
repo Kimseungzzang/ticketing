@@ -33,13 +33,7 @@ DB_USERNAME=kimseungzzang
 DB_PASSWORD=
 ```
 
-### 4. Redis 초기화
-
-```bash
-redis-cli set "booking:seats:remaining:EVT2026-001" 292
-```
-
-### 5. 실행
+### 4. 실행
 
 ```bash
 ./gradlew bootRun
@@ -52,6 +46,7 @@ redis-cli set "booking:seats:remaining:EVT2026-001" 292
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/api/seats/{eventId}` | 이벤트 좌석 목록 및 잔여 현황 조회 |
+| GET | `/api/seats/{eventId}/availability` | 전체/잔여 좌석 수 조회 (좌석 선택 화면 진입 전 pre-check용) |
 
 ### 예약
 
@@ -81,7 +76,6 @@ curl -X POST http://localhost:8080/api/booking \
 POST /api/booking
   → entryToken 검증 (Redis queue:entry:{userId})
   → 좌석 잠금 SET NX (Redis booking:lock:{eventId}:{seatId}, TTL 10s)
-  → 잔여 좌석 DECR (Redis booking:seats:remaining:{eventId})
   → seats 테이블 status → TAKEN
   → bookings 테이블 INSERT (status: PENDING)
 ```
@@ -90,7 +84,7 @@ POST /api/booking
 
 | 키 | 타입 | 용도 | TTL |
 |----|------|------|-----|
-| `booking:seats:remaining:{eventId}` | String | 잔여 좌석 카운터 | — |
+| `booking:seats:remaining:{eventId}` | String | 잔여 좌석 수 캐시 (pre-check용, 예약/취소 시 동기화) | — |
 | `booking:lock:{eventId}:{seatId}` | String | 좌석 동시 예약 방지 잠금 | 10s |
 
 ## 데이터베이스

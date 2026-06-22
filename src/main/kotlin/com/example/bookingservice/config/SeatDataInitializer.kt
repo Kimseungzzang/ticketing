@@ -2,12 +2,17 @@ package com.example.bookingservice.config
 
 import com.example.bookingservice.domain.Seat
 import com.example.bookingservice.repository.SeatRepository
+import com.example.bookingservice.service.BookingService
+import com.example.myredisclient.MyRedisTemplate
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.stereotype.Component
 
 @Component
-class SeatDataInitializer(private val seatRepository: SeatRepository) : ApplicationRunner {
+class SeatDataInitializer(
+    private val seatRepository: SeatRepository,
+    private val myRedisTemplate: MyRedisTemplate,
+) : ApplicationRunner {
 
     private data class SectionMeta(
         val id: String,
@@ -45,5 +50,6 @@ class SeatDataInitializer(private val seatRepository: SeatRepository) : Applicat
             }
         }
         seatRepository.saveAll(seats)
+        myRedisTemplate.setKey(BookingService.seatsRemainingKey(eventId), seats.size.toString(), -1L)
     }
 }
