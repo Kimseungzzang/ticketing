@@ -2,19 +2,62 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { mockEvent, mockSections, SERVICE_FEE } from '@/lib/mock-data';
+import { mockEvent, SERVICE_FEE } from '@/lib/mock-data';
 import StepIndicator from '@/components/StepIndicator';
 
-const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
+const QUEUE_API   = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL   ?? 'http://localhost:8082';
+const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8083';
 const MAX_SEATS = 4;
+
+const SECTION_META: Record<string, { korName: string; color: string }> = {
+  S: { korName: '스테이지 플로어', color: '#D4A83A' },
+  R: { korName: '레귤러',         color: '#7C9EF0' },
+  A: { korName: '어퍼 발코니',    color: '#A47FD4' },
+};
+
+interface ApiSeat {
+  seatId: string;
+  row: string;
+  number: number;
+  status: 'available' | 'taken';
+}
+
+interface ApiSection {
+  sectionId: string;
+  sectionName: string;
+  price: number;
+  seats: ApiSeat[];
+}
+
+interface SeatRow {
+  id: string;
+  seats: ApiSeat[];
+}
+
+interface SeatSection extends ApiSection {
+  korName: string;
+  color: string;
+  rows: SeatRow[];
+}
+
+interface SeatInfo {
+  id: string;
+  row: string;
+  number: number;
+  price: number;
+  sectionName: string;
+  sectionColor: string;
+}
 
 export default function SeatsPage() {
   const router = useRouter();
+  const [sections, setSections] = useState<SeatSection[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeSection, setActiveSection] = useState('S');
   const [validating, setValidating] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [soldOut, setSoldOut] = useState(false);
 
-  // 진입 시 Redis에 살아있는 토큰인지 검증
   useEffect(() => {
     const accessToken = localStorage.getItem('accessToken');
     const entryToken  = localStorage.getItem('entryToken');
@@ -34,12 +77,51 @@ export default function SeatsPage() {
       .then(res => {
         if (!res.ok) throw new Error('invalid token');
         setValidating(false);
+        // availability 검증: Redis remaining 기반 매진 체크
+        return fetch(`${BOOKING_API}/api/seats/${eventId}/availability`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      })
+      .then(res => {
+        if (!res.ok) throw new Error('availability fetch failed');
+        return res.json() as Promise<{ total: number; available: number }>;
+      })
+      .then(avail => {
+        if (avail.available <= 0) {
+          setSoldOut(true);
+          setLoading(false);
+          return null;
+        }
+        return fetch(`${BOOKING_API}/api/seats/${eventId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      })
+      .then(res => {
+        if (!res) return null;
+        if (!res.ok) throw new Error('seat fetch failed');
+        return res.json() as Promise<ApiSection[]>;
+      })
+      .then(data => {
+        if (!data) return;
+        const enriched: SeatSection[] = data.map(sec => {
+          const meta = SECTION_META[sec.sectionId] ?? { korName: sec.sectionName, color: '#888' };
+          const rowMap = new Map<string, ApiSeat[]>();
+          sec.seats.forEach(seat => {
+            if (!rowMap.has(seat.row)) rowMap.set(seat.row, []);
+            rowMap.get(seat.row)!.push(seat);
+          });
+          const rows: SeatRow[] = Array.from(rowMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([rowId, seats]) => ({ id: rowId, seats: seats.sort((a, b) => a.number - b.number) }));
+          return { ...sec, ...meta, rows };
+        });
+        setSections(enriched);
+        setLoading(false);
       })
       .catch(() => {
-        // 토큰 만료 or 없음 → 슬롯 반납 후 대기열로
         fetch(`${QUEUE_API}/api/queue/release?eventId=${eventId}`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken!}` },
         }).finally(() => {
           localStorage.removeItem('entryToken');
           localStorage.removeItem('entryEventId');
@@ -48,27 +130,42 @@ export default function SeatsPage() {
       });
   }, [router]);
 
-  if (validating) {
+  if (validating || loading) {
     return (
       <div className="min-h-screen bg-[#04040A] flex items-center justify-center">
-        <p className="text-[#F0EBE0] opacity-40 text-sm">입장 확인 중...</p>
+        <p className="text-[#F0EBE0] opacity-40 text-sm">
+          {validating ? '입장 확인 중...' : '좌석 정보 불러오는 중...'}
+        </p>
       </div>
     );
   }
 
-  const currentSection = mockSections.find(s => s.id === activeSection)!;
+  if (soldOut) {
+    return (
+      <div className="min-h-screen bg-[#04040A] flex items-center justify-center flex-col gap-4">
+        <p className="text-red-400 text-2xl font-bold">매진되었습니다</p>
+        <p className="text-[#F0EBE0] opacity-40 text-sm">잔여 좌석이 없습니다.</p>
+        <button onClick={() => router.replace('/')}
+          className="mt-4 px-6 py-2 rounded-xl text-sm bg-[#1A1A28] text-[#F0EBE0] border border-white/10">
+          홈으로
+        </button>
+      </div>
+    );
+  }
 
-  const selectedWithInfo = mockSections.flatMap(section =>
-    section.rows.flatMap(row =>
-      row.seats
-        .filter(seat => selectedIds.has(seat.id))
-        .map(seat => ({
-          ...seat,
-          price: section.price,
-          sectionName: section.name,
-          sectionColor: section.color,
-        }))
-    )
+  const currentSection = sections.find(s => s.sectionId === activeSection) ?? sections[0];
+
+  const selectedWithInfo: SeatInfo[] = sections.flatMap(sec =>
+    sec.seats
+      .filter(seat => selectedIds.has(seat.seatId))
+      .map(seat => ({
+        id: seat.seatId,
+        row: seat.row,
+        number: seat.number,
+        price: sec.price,
+        sectionName: sec.sectionName,
+        sectionColor: sec.color,
+      }))
   );
 
   const subtotal = selectedWithInfo.reduce((s, x) => s + x.price, 0);
@@ -95,9 +192,10 @@ export default function SeatsPage() {
     router.push('/payment');
   };
 
+  if (!currentSection) return null;
+
   return (
     <div className="min-h-screen bg-[#04040A] flex flex-col">
-      {/* Header */}
       <header className="border-b border-white/6 bg-[#07070F] flex-shrink-0">
         <div className="max-w-full px-6 py-4 flex items-center justify-between">
           <div>
@@ -109,29 +207,25 @@ export default function SeatsPage() {
         </div>
       </header>
 
-      {/* Body */}
       <div className="flex-1 flex min-h-0">
-        {/* Seat map */}
         <main className="flex-1 overflow-y-auto p-6 min-w-0">
 
-          {/* Section tabs */}
           <div className="flex gap-2 mb-6 flex-wrap">
-            {mockSections.map(sec => (
+            {sections.map(sec => (
               <button
-                key={sec.id}
-                onClick={() => setActiveSection(sec.id)}
+                key={sec.sectionId}
+                onClick={() => setActiveSection(sec.sectionId)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border"
-                style={activeSection === sec.id
+                style={activeSection === sec.sectionId
                   ? { backgroundColor: sec.color, color: '#04040A', borderColor: 'transparent' }
                   : { backgroundColor: '#0E0E1A', color: 'rgba(240,235,224,0.5)', borderColor: 'rgba(255,255,255,0.07)' }}
               >
-                <span className="font-bold">{sec.name}</span>
+                <span className="font-bold">{sec.sectionName}</span>
                 <span className="text-xs opacity-70">{sec.price.toLocaleString()}원</span>
               </button>
             ))}
           </div>
 
-          {/* Stage indicator */}
           <div className="relative mb-6">
             <div className="h-9 rounded-xl flex items-center justify-center"
                  style={{ background: `linear-gradient(90deg, transparent, ${currentSection.color}28 30%, ${currentSection.color}45 50%, ${currentSection.color}28 70%, transparent)` }}>
@@ -142,11 +236,10 @@ export default function SeatsPage() {
                  style={{ background: `linear-gradient(90deg, transparent, ${currentSection.color}70, transparent)` }} />
           </div>
 
-          {/* Seat grid */}
           <div className="overflow-x-auto pb-4">
             <div className="inline-block">
               <p className="text-[#F0EBE0] text-xs tracking-wider uppercase mb-4 opacity-35">
-                {currentSection.korName} — {currentSection.name}
+                {currentSection.korName} — {currentSection.sectionName}
               </p>
 
               {currentSection.rows.map(row => (
@@ -156,14 +249,14 @@ export default function SeatsPage() {
                   </span>
                   <div className="flex gap-[3px]">
                     {row.seats.map(seat => {
-                      const isSelected = selectedIds.has(seat.id);
+                      const isSelected = selectedIds.has(seat.seatId);
                       const isTaken = seat.status === 'taken';
                       return (
                         <button
-                          key={seat.id}
-                          onClick={() => toggleSeat(seat.id, isTaken)}
+                          key={seat.seatId}
+                          onClick={() => toggleSeat(seat.seatId, isTaken)}
                           disabled={isTaken}
-                          title={`${currentSection.name} ${row.id}열 ${seat.number}번${isTaken ? ' (판매완료)' : ''}`}
+                          title={`${currentSection.sectionName} ${row.id}열 ${seat.number}번${isTaken ? ' (판매완료)' : ''}`}
                           className="w-[17px] h-[17px] rounded-[3px] transition-all duration-100 flex-shrink-0"
                           style={{
                             backgroundColor: isTaken
@@ -189,7 +282,6 @@ export default function SeatsPage() {
             </div>
           </div>
 
-          {/* Legend */}
           <div className="flex items-center gap-5 mt-4 pt-4 border-t border-white/5">
             <div className="flex items-center gap-2">
               <div className="w-[14px] h-[14px] rounded-[3px] bg-[#1E2035]" />
@@ -210,7 +302,6 @@ export default function SeatsPage() {
           </div>
         </main>
 
-        {/* Sidebar */}
         <aside className="w-72 flex-shrink-0 border-l border-white/6 bg-[#07070F] flex flex-col">
           <div className="p-5 flex-1 flex flex-col min-h-0">
             <h3 className="text-[#F0EBE0] font-semibold text-sm mb-4">선택한 좌석</h3>

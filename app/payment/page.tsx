@@ -21,6 +21,8 @@ interface OrderData {
   total: number;
 }
 
+const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8083';
+
 const FALLBACK: OrderData = {
   seats: [{ id: 'S-A-5', row: 'A', number: 5, price: 176000, sectionName: 'S석', sectionColor: '#D4A83A' }],
   subtotal: 176000,
@@ -38,6 +40,7 @@ export default function PaymentPage() {
   const [cardName, setCardName] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedSeats');
@@ -58,12 +61,61 @@ export default function PaymentPage() {
      cardCvv.length === 3 &&
      cardName.trim().length > 0);
 
-  const handlePay = () => {
+  const handlePay = async () => {
     if (!agreed || !cardReady) return;
     setLoading(true);
-    const id = 'TKT' + Date.now().toString(36).toUpperCase().slice(-8);
-    sessionStorage.setItem('bookingId', id);
-    setTimeout(() => router.push('/confirmation'), 1500);
+    setPayError(null);
+
+    const accessToken = localStorage.getItem('accessToken');
+    const entryToken  = localStorage.getItem('entryToken');
+    const eventId     = localStorage.getItem('entryEventId') ?? 'EVT2026-001';
+    if (!accessToken || !entryToken) { router.replace('/'); return; }
+
+    const createdIds: string[] = [];
+
+    try {
+      // 1. 각 좌석 예약 생성 (Redis DECR)
+      for (const seat of order.seats) {
+        const res = await fetch(`${BOOKING_API}/api/booking`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ eventId, seatId: seat.id, entryToken }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: '예약 생성 실패' })) as { message?: string };
+          throw new Error(err.message ?? '예약 생성 실패');
+        }
+        const data = await res.json() as { id: string };
+        createdIds.push(data.id);
+      }
+
+      // 2. 결제 처리 (mock 1.5s)
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 3. 결제 성공 → DB write-back (confirm)
+      for (const bookingId of createdIds) {
+        await fetch(`${BOOKING_API}/api/booking/${bookingId}/confirm`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
+
+      sessionStorage.setItem('bookingIds', JSON.stringify(createdIds));
+      localStorage.removeItem('entryToken');
+      localStorage.removeItem('entryEventId');
+      router.push('/confirmation');
+
+    } catch (err) {
+      // 결제 실패 → Redis count 복원
+      for (const bookingId of createdIds) {
+        await fetch(`${BOOKING_API}/api/booking/${bookingId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).catch(() => {});
+      }
+      setPayError(err instanceof Error ? err.message : '결제 처리 중 오류가 발생했습니다.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -79,6 +131,15 @@ export default function PaymentPage() {
           <StepIndicator current={3} />
         </div>
       </header>
+
+      {payError && (
+        <div className="max-w-6xl mx-auto w-full px-6 pt-4">
+          <div className="rounded-lg border px-4 py-3 text-sm"
+               style={{ background: 'rgba(160,32,32,0.14)', borderColor: 'rgba(218,82,82,0.35)', color: '#F6C4C4' }}>
+            {payError}
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
         <div className="flex gap-8 items-start">
