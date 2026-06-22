@@ -1,6 +1,5 @@
 package com.example.queueservice.controller
 
-import com.example.queueservice.dto.QueueEnterRequest
 import com.example.queueservice.dto.QueueMessageResponse
 import com.example.queueservice.dto.QueueStatusResponse
 import com.example.queueservice.service.QueueService
@@ -9,7 +8,6 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -22,9 +20,9 @@ class QueueController(private val queueService: QueueService) {
     @PostMapping("/enter")
     fun enter(
         @AuthenticationPrincipal userId: String,
-        @RequestBody req: QueueEnterRequest,
+        @RequestParam eventId: String,
     ): ResponseEntity<QueueStatusResponse> =
-        ResponseEntity.ok(queueService.enter(userId, req.eventId))
+        ResponseEntity.ok(queueService.enter(userId, eventId))
 
     @GetMapping("/status")
     fun status(
