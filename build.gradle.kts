@@ -38,6 +38,9 @@ repositories {
 dependencies {
     implementation("com.example:myredis-client-starter:1.0.5")
     implementation("com.github.ghals5737.mykafka:client:v0.1.0")
+    // 모니터링: actuator /actuator/prometheus 노출 → Prometheus 스크랩 (RUN_LOG §19)
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

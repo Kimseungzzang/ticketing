@@ -67,7 +67,9 @@ class BookingService(
         )
     }
 
-    @Transactional
+    // rollbackFor: MyKafka 발행 실패(SocketException=checked)도 롤백해 dual-write 방지.
+    //   기본 @Transactional은 unchecked만 롤백 → seat TAKEN만 커밋되고 이벤트 유실되던 버그 수정(RUN_LOG §19.3②).
+    @Transactional(rollbackFor = [Exception::class])
     fun confirm(bookingId: UUID): BookingResponse {
         val pending = myRedisTemplate.getKey(pendingBookingKey(bookingId))
             ?: throw BookingNotFoundException()
@@ -79,11 +81,16 @@ class BookingService(
             seatRepository.save(it)
         }
 
-        myKafkaProducer.produce(
-            kafkaTopic,
-            key = seatId,
-            value = """{"bookingId":"$bookingId","userId":"$userId","eventId":"$eventId","seatId":"$seatId","status":"CONFIRMED"}""",
-        )
+        // synchronized: MyKafkaProducer는 단일 소켓이라 thread-safe하지 않다. 동시 confirm이
+        //   같은 소켓에 동시 write하면 Broken pipe로 깨지던 버그 수정(RUN_LOG §19.3①).
+        //   ※ 발행을 직렬화하므로 처리량 천장이 낮다 — 근본 해법은 ticket-command식 ProducerPool/Outbox.
+        synchronized(myKafkaProducer) {
+            myKafkaProducer.produce(
+                kafkaTopic,
+                key = seatId,
+                value = """{"bookingId":"$bookingId","userId":"$userId","eventId":"$eventId","seatId":"$seatId","status":"CONFIRMED"}""",
+            )
+        }
 
         myRedisTemplate.delKey(pendingBookingKey(bookingId))
 

@@ -19,7 +19,10 @@ class SecurityConfig(private val headerAuthFilter: HeaderAuthFilter) {
             .csrf { it.disable() }
             .cors { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
-            .authorizeHttpRequests { auth -> auth.anyRequest().authenticated() }
+            .authorizeHttpRequests { auth ->
+                auth.requestMatchers("/actuator/**").permitAll()   // 모니터링 스크랩 허용
+                    .anyRequest().authenticated()
+            }
             .addFilterBefore(headerAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
             .build()
 }

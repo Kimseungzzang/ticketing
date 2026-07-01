@@ -11,6 +11,10 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Component
 class HeaderAuthFilter : OncePerRequestFilter() {
 
+    // actuator(모니터링 스크랩)는 X-User-Id 인증 대상에서 제외
+    override fun shouldNotFilter(request: HttpServletRequest): Boolean =
+        request.requestURI.startsWith("/actuator")
+
     override fun doFilterInternal(
         request: HttpServletRequest,
         response: HttpServletResponse,

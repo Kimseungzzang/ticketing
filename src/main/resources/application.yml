@@ -29,3 +29,16 @@ booking:
   seat:
     lock-ttl-sec: 300
 
+# 모니터링: Prometheus가 /actuator/prometheus를 스크랩 (RUN_LOG §19)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  metrics:
+    tags:
+      application: booking-service
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
