@@ -62,6 +62,8 @@ tasks.withType<Test> {
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    // OTEL_AGENT env가 있으면 OpenTelemetry java agent 부착(분산추적). 평소 실행엔 영향 없음.
+    System.getenv("OTEL_AGENT")?.let { jvmArgs("-javaagent:$it") }
     val envFile = file(".env")
     if (envFile.exists()) {
         envFile.readLines()
