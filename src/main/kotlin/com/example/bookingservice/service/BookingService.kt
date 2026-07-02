@@ -9,6 +9,8 @@ import com.example.bookingservice.exception.SeatAlreadyTakenException
 import com.example.bookingservice.repository.SeatRepository
 import com.example.mykafka.client.MyKafkaProducer
 import com.example.myredisclient.MyRedisTemplate
+import io.opentelemetry.api.GlobalOpenTelemetry
+import io.opentelemetry.api.trace.Span
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -23,6 +25,9 @@ class BookingService(
     @Value("\${booking.seat.lock-ttl-sec}") private val seatLockTtlSec: Long,
     @Value("\${booking.kafka.topic}") private val kafkaTopic: String,
 ) {
+    // 분산추적: MyKafka produce 등 커스텀 구간에 span 부여. agent 없으면 no-op(안전).
+    private val tracer = GlobalOpenTelemetry.getTracer("booking-service")
+
     companion object {
         fun entryTokenKey(userId: String) = "queue:entry:$userId"
         fun seatsTotalKey(eventId: String) = "booking:seats:total:$eventId"
@@ -84,12 +89,25 @@ class BookingService(
         // synchronized: MyKafkaProducer는 단일 소켓이라 thread-safe하지 않다. 동시 confirm이
         //   같은 소켓에 동시 write하면 Broken pipe로 깨지던 버그 수정(RUN_LOG §19.3①).
         //   ※ 발행을 직렬화하므로 처리량 천장이 낮다 — 근본 해법은 ticket-command식 ProducerPool/Outbox.
-        synchronized(myKafkaProducer) {
-            myKafkaProducer.produce(
-                kafkaTopic,
-                key = seatId,
-                value = """{"bookingId":"$bookingId","userId":"$userId","eventId":"$eventId","seatId":"$seatId","status":"CONFIRMED"}""",
-            )
+        // span: 이 구간이 waterfall에 "MyKafka produce"로 찍힌다. synchronized 락 대기 시간까지 포함돼
+        //   "발행이 느린 게 소켓 경합 때문"임이 trace로 드러난다(자동계측이 못 보는 커스텀 구간).
+        val span = tracer.spanBuilder("MyKafka produce booking-events").startSpan()
+        try {
+            span.makeCurrent().use {
+                // produce span의 context를 W3C traceparent로 만들어 발행 JSON에 실어 보낸다.
+                //   MyKafka Record엔 헤더가 없으므로 payload에 실음 → ticket-query가 복원해 같은 trace로 이음.
+                val sc = span.spanContext
+                val traceparent = "00-${sc.traceId}-${sc.spanId}-${if (sc.isSampled) "01" else "00"}"
+                synchronized(myKafkaProducer) {
+                    myKafkaProducer.produce(
+                        kafkaTopic,
+                        key = seatId,
+                        value = """{"bookingId":"$bookingId","userId":"$userId","eventId":"$eventId","seatId":"$seatId","status":"CONFIRMED","traceparent":"$traceparent"}""",
+                    )
+                }
+            }
+        } finally {
+            span.end()
         }
 
         myRedisTemplate.delKey(pendingBookingKey(bookingId))

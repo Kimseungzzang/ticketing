@@ -41,6 +41,9 @@ dependencies {
     // 모니터링: actuator /actuator/prometheus 노출 → Prometheus 스크랩 (RUN_LOG §19)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")
+    // 분산추적: MyKafka produce 등 커스텀 구간에 수동 span 부여.
+    //   agent는 API 호출을 실제 구현으로 이어주기만 하므로 API 클래스는 런타임에 있어야 함(implementation).
+    implementation("io.opentelemetry:opentelemetry-api:1.54.1")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -67,6 +70,8 @@ tasks.withType<Test> {
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    // OTEL_AGENT env가 있으면 OpenTelemetry java agent 부착(분산추적). 평소 실행엔 영향 없음.
+    System.getenv("OTEL_AGENT")?.let { jvmArgs("-javaagent:$it") }
     val envFile = file(".env")
     if (envFile.exists()) {
         envFile.readLines()
