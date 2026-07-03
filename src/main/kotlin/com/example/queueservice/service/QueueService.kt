@@ -2,15 +2,17 @@ package com.example.queueservice.service
 
 import com.example.myredisclient.MyRedisTemplate
 import com.example.queueservice.dto.QueueStatusResponse
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
 class QueueService(
     private val myRedisTemplate: MyRedisTemplate,
+    // slot(동시 입장 허용 수) — env QUEUE_maxActiveCap로 조절(기본 5). 늘리면 admit이 한 번에 더 많이 빼가 큐가 빨리 빠진다.
+    @Value("\${queue.max-active-cap:5}") private val maxActiveCap: Int,
 ) {
     companion object {
-        const val MAX_ACTIVE_CAP = 5
         const val ENTRY_TOKEN_TTL_SEC = 300L
         private const val QUEUE_KEY_PREFIX = "queue:sorted:"
 
@@ -109,16 +111,16 @@ class QueueService(
 
     fun admitFromQueue(eventId: String) {
         val activeCount    = myRedisTemplate.getKey(activeCountKey(eventId))?.toLongOrNull() ?: 0L
-        val slotsAvailable = (MAX_ACTIVE_CAP - activeCount).toInt()
+        val slotsAvailable = (maxActiveCap - activeCount).toInt()
 
         if (slotsAvailable <= 0) {
-            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$MAX_ACTIVE_CAP  no slots")
+            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$maxActiveCap  no slots")
             return
         }
 
         val admitted = myRedisTemplate.zpopmin(queueKey(eventId), slotsAvailable)
         if (admitted.isEmpty()) {
-            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$MAX_ACTIVE_CAP  queue empty")
+            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$maxActiveCap  queue empty")
             return
         }
 
