@@ -2,8 +2,10 @@ server:
   port: 8082
 
 myredis:
-  host: localhost
-  port: 6379
+  # LAN 다원화: 각 기기의 queue가 '중앙 Redis 한 대'를 바라봐야 sorted set/리더락이 공유된다.
+  #   MYREDIS_HOST=<중앙기기IP>로 지정. 미지정 시 localhost(단일 기기 테스트).
+  host: ${MYREDIS_HOST:localhost}
+  port: ${MYREDIS_PORT:6379}
   pool-size: 4
 
 # 모니터링: Prometheus가 /actuator/prometheus를 스크랩 (RUN_LOG §19)
