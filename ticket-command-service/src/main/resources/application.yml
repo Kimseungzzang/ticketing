@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: ticket-command-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ticket_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}    # 단일 머신에선 10이 30보다 나음(풀 키우면 PG 동시성 포화로 악화). RUN_LOG §18.5. AWS선 재튜닝.
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+mykafka:
+  host: ${KAFKA_HOST:localhost}
+  port: ${KAFKA_PORT:9092}
+  producer:
+    pool-size: ${KAFKA_PRODUCER_POOL_SIZE:8}   # 동시 발행 connection 수
+  outbox:
+    poll-ms: ${OUTBOX_POLL_MS:50}              # outbox relay 폴링 주기 (병목 처방①: 200→50, RUN_LOG §18.3)
+
+server:
+  port: ${PORT:8082}
+
+# 모니터링: Prometheus가 /actuator/prometheus를 스크랩 (RUN_LOG §19)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true   # latency 히스토그램 → Grafana p95/p99
