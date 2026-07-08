@@ -1,0 +1,79 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # 인증 (auth-service). 컨트롤러 base가 /api/auth.
+            - id: auth-service
+              uri: ${AUTH_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/auth/**
+
+            # 예매 쓰기 (CQRS command). POST /reservations, POST /reservations/{id}/confirm, DELETE /reservations/{id}
+            #   command/query가 같은 /reservations 경로를 써서 HTTP 메서드로 가른다.
+            - id: ticket-command
+              uri: ${COMMAND_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/reservations,/reservations/**
+                - Method=POST,DELETE
+
+            # 예매 조회 (CQRS query). GET /reservations/{id}, GET /reservations?userId=
+            - id: ticket-query-reservations
+              uri: ${QUERY_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/reservations,/reservations/**
+                - Method=GET
+
+            # 이벤트/좌석 조회 (query). GET /events, /events/{id}, /events/{id}/seats
+            - id: ticket-query-events
+              uri: ${QUERY_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/events,/events/**
+
+            # 대기열 (queue-service). /api/queue/** — 여러 인스턴스에 로드밸런싱(lb://)
+            - id: queue-service
+              uri: lb://queue-service
+              predicates:
+                - Path=/api/queue/**
+
+            # 예약 (booking-service). /api/booking/**, /api/seats/**
+            - id: booking-service
+              uri: ${BOOKING_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/booking/**,/api/seats/**
+          httpclient:
+            connect-timeout: 2000
+            response-timeout: 5s
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+    # 로드밸런싱 대상 인스턴스 정적 목록 (Eureka 없이 Spring Cloud LoadBalancer로 round-robin)
+    loadbalancer:
+      configurations: default
+    discovery:
+      client:
+        simple:
+          instances:
+            queue-service:
+              - uri: http://localhost:8085
+              - uri: http://localhost:8086
+              - uri: http://localhost:8087
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: when_authorized
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: INFO
