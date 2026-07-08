@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>티켓팅 실시간 파이프라인</title>
+<style>
+  :root { --bg:#0b0e14; --panel:#141821; --line:#232836; --txt:#e6e9ef; --dim:#7d8698; --acc:#4f9cf9; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:14px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:17px; margin:0; } header .sub { color:var(--dim); font-size:13px; }
+  .wrap { max-width:1000px; margin:0 auto; padding:16px 22px; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .btn { background:var(--panel); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:8px 12px; cursor:pointer; font-size:13px; transition:.15s; }
+  .btn:hover { border-color:var(--acc); } .btn.disabled { opacity:.4; pointer-events:none; }
+  .btn.stop { border-color:#f85149; color:#f85149; }
+  .status { color:var(--dim); font-size:13px; margin:6px 2px; height:18px; }
+  .status b { color:var(--txt); }
+  canvas { width:100%; background:radial-gradient(ellipse at 50% 30%, #10151f, #0b0e14); border:1px solid var(--line); border-radius:12px; display:block; }
+  .foot { display:flex; gap:16px; margin-top:12px; font-size:13px; }
+  .foot a { color:var(--acc); text-decoration:none; } .foot a:hover { text-decoration:underline; }
+  .legend { color:var(--dim); font-size:12px; margin-top:8px; line-height:1.7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌊 티켓팅 실시간 파이프라인</h1>
+  <span class="sub">부하를 걸면 노드 사이로 트래픽이 흐릅니다 — 유량=RPS · 노드=부하 · 카프카 엣지=수렴 lag</span>
+</header>
+<div class="wrap">
+  <div class="btns" id="btns"></div>
+  <div class="status" id="status">시나리오를 클릭해 부하를 거세요.</div>
+  <canvas id="cv" width="960" height="660"></canvas>
+  <div class="legend">
+    ● 노드 크기 = 처리량(RPS) · 색 = p95 지연(초록→빨강) · <b>Queue</b>는 대기열 깊이로 부풂 ·
+    입자 = 실제 요청 흐름(빠를수록 RPS↑) · <b>카프카 점선</b>은 비동기(수렴 lag 크면 붉어짐)
+  </div>
+  <div class="foot">
+    <span style="color:var(--dim)">정밀 분석은 →</span>
+    <a href="http://localhost:3030/d/ticketing-segments" target="_blank">📊 Grafana(메트릭)</a>
+    <a href="http://localhost:16686" target="_blank">🔭 Jaeger(trace)</a>
+    <a href="http://localhost:3030/d/loadtest-suite" target="_blank">📈 run 비교</a>
+  </div>
+</div>
+
+<script>
+// ── 노드 레이아웃 (논리 좌표, 960x560) ──
+const N = {
+  gateway:    { x:480, y:55,  label:'Gateway',        color:'#a371f7' },
+  queue:      { x:140, y:210, label:'Queue',          color:'#4f9cf9', q:true },
+  command:    { x:400, y:210, label:'Ticket-Command', color:'#4f9cf9' },
+  booking:    { x:780, y:180, label:'Booking',        color:'#4f9cf9' },
+  ticket_db:  { x:400, y:360, label:'ticket_db',      color:'#8b949e', db:true },
+  booking_db: { x:560, y:330, label:'booking_db',     color:'#8b949e', db:true },
+  kafka:      { x:780, y:335, label:'MyKafka',        color:'#d29922' },
+  query:      { x:780, y:475, label:'Ticket-Query',   color:'#3fb950' },
+  read_db:    { x:780, y:610, label:'read_db · RDB',  color:'#8b949e', db:true },
+};
+const KEY = { queue:'queue', command:'ticket-command', booking:'booking', kafka:'kafka', query:'ticket-query',
+  gateway:'gateway', ticket_db:'ticket_db', booking_db:'booking_db', read_db:'read_db' };
+const E = [
+  ['gateway','queue'], ['gateway','command'], ['gateway','booking'],
+  ['command','ticket_db'],
+  ['booking','booking_db'], ['booking','kafka','async'],
+  ['kafka','query','async'], ['query','read_db'],
+];
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let topo = { nodes:{}, edges:[], lag:0, load:0, ncpu:10 };
+let particles = [];
+
+function nd(k){ return topo.nodes[KEY[k]] || {}; }
+function edgeRps(a,b){ const e=(topo.edges||[]).find(e=>e.from===KEY[a]&&e.to===KEY[b]); return e?e.rps:0; }
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function heat(p95){ // 지연 → 색 (초록 0ms → 빨강 300ms+)
+  const t = Math.min(1, (p95||0)/300);
+  const r = Math.round(lerp(63,248,t)), g = Math.round(lerp(185,81,t)), b = Math.round(lerp(80,73,t));
+  return `rgb(${r},${g},${b})`;
+}
+
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+
+  // 엣지
+  E.forEach(([a,b,async])=>{
+    const A=N[a], B=N[b], rps=edgeRps(a,b);
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y);
+    if(async){
+      const lag = topo.lag||0;
+      ctx.strokeStyle = lag>100 ? 'rgba(248,81,73,.7)' : (lag>10 ? 'rgba(210,153,34,.6)' : 'rgba(125,134,152,.35)');
+      ctx.setLineDash([6,6]);
+    } else {
+      ctx.strokeStyle = `rgba(79,156,249,${Math.min(.6, .1+rps/400)})`;
+      ctx.setLineDash([]);
+    }
+    ctx.lineWidth = 1 + Math.min(5, rps/150);
+    ctx.stroke(); ctx.setLineDash([]);
+    // 엣지 RPS 라벨
+    if(rps>0.5){ ctx.fillStyle='#7d8698'; ctx.font='11px system-ui';
+      ctx.fillText(rps.toFixed(0)+'/s', (A.x+B.x)/2+6, (A.y+B.y)/2); }
+  });
+
+  // 입자
+  particles = particles.filter(p=>{
+    p.t += p.sp; if(p.t>=1) return false;
+    const A=N[p.a], B=N[p.b], x=lerp(A.x,B.x,p.t), y=lerp(A.y,B.y,p.t);
+    ctx.beginPath(); ctx.arc(x,y,2.6,0,7); ctx.fillStyle=p.async?'#d29922':'#8fd0ff'; ctx.fill();
+    return true;
+  });
+
+  // 노드
+  for(const k in N){
+    const n=N[k], d=nd(k);
+    let r = 26 + Math.min(28, (d.rps||0)/12);
+    if(n.q) r = 26 + Math.min(45, (d.queue||0)/3000);
+    const col = (n.db||k==='queue'||k==='kafka') ? n.color : heat(d.p95);
+    // glow
+    ctx.beginPath(); ctx.arc(n.x,n.y,r+6,0,7); ctx.fillStyle = col+'22'; ctx.fill();
+    ctx.beginPath(); ctx.arc(n.x,n.y,r,0,7);
+    ctx.fillStyle='#141821'; ctx.fill(); ctx.lineWidth=2.5; ctx.strokeStyle=col; ctx.stroke();
+    // 라벨
+    ctx.fillStyle='#e6e9ef'; ctx.font='bold 13px system-ui'; ctx.textAlign='center';
+    ctx.fillText(n.label, n.x, n.y-r-10);
+    // 값
+    ctx.font='11px system-ui'; ctx.fillStyle='#c9d1e0';
+    if(n.q){ ctx.font='bold 15px system-ui'; ctx.fillText((d.queue||0).toLocaleString(), n.x, n.y+4);
+             ctx.font='10px system-ui'; ctx.fillStyle='#7d8698'; ctx.fillText('대기', n.x, n.y+18); }
+    else { ctx.fillText((d.rps||0).toFixed(0)+'/s', n.x, n.y+3);
+           if(d.p95!=null){ ctx.font='10px system-ui'; ctx.fillStyle='#7d8698'; ctx.fillText((d.p95||0).toFixed(0)+'ms', n.x, n.y+17); } }
+    ctx.textAlign='left';
+  }
+
+  // load 표시 (좌상단)
+  const ov = topo.load>topo.ncpu;
+  ctx.fillStyle = ov?'#f85149':'#7d8698'; ctx.font='12px system-ui';
+  ctx.fillText(`CPU load ${topo.load} / ${topo.ncpu}코어${ov?' ⚠️포화':''}`, 14, 22);
+}
+
+// 입자 스폰 (RPS 비례)
+function spawn(){
+  E.forEach(([a,b,async])=>{
+    const rps=edgeRps(a,b);
+    const n = rps/220;               // 프레임당 기대 입자 수
+    let cnt = Math.floor(n) + (Math.random()<(n%1)?1:0);
+    cnt = Math.min(cnt, 4);
+    for(let i=0;i<cnt;i++) particles.push({ a, b, t:Math.random()*0.15, sp:0.012+Math.min(.02,rps/6000), async:!!async });
+  });
+}
+
+function loop(){ spawn(); draw(); requestAnimationFrame(loop); }
+
+async function poll(){
+  try { topo = await (await fetch('/api/topology')).json(); } catch(e){}
+  const st = document.getElementById('status');
+  if(topo.running) st.innerHTML = `<span style="color:#4f9cf9">● 실행 중</span> <b>${topo.scenario}</b> — 트래픽이 흐르는 중`;
+  else st.innerHTML = '대기 중 — 시나리오를 클릭해 부하를 거세요.';
+  document.querySelectorAll('.btn').forEach(b=>{ if(!b.classList.contains('stop')) b.classList.toggle('disabled', topo.running); });
+}
+
+async function loadBtns(){
+  const s = await (await fetch('/api/scenarios')).json();
+  const el = document.getElementById('btns'); el.innerHTML='';
+  for(const [k,v] of Object.entries(s)){
+    const b=document.createElement('button'); b.className='btn';
+    b.textContent = v.title; b.title = v.desc;
+    b.onclick = async ()=>{ const r=await (await fetch('/api/run?scenario='+k,{method:'POST'})).json(); if(r.error) alert(r.error); };
+    el.appendChild(b);
+  }
+  const stop=document.createElement('button'); stop.className='btn stop'; stop.textContent='■ 중지';
+  stop.onclick=()=>fetch('/api/stop',{method:'POST'}); el.appendChild(stop);
+}
+
+loadBtns(); poll(); setInterval(poll, 2000); loop();
+</script>
+</body>
+</html>
