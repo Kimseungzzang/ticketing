@@ -1,5 +1,6 @@
 package com.example.myredis
 
 fun main() {
-    Server().start()
+    val port = System.getenv("PORT")?.toIntOrNull() ?: 6379
+    Server(port).start()
 }

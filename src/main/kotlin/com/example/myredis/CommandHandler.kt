@@ -10,29 +10,24 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
             ctx.writeAndFlush(RespEncoder.error("ERR empty command"))
             return
         }
-        val response = try {
-            when (args[0].uppercase()) {
-                "PING"    -> if (args.size > 1) RespEncoder.bulkString(args[1]) else RespEncoder.simpleString("PONG")
-                "SET"     -> handleSet(args)
-                "GET"     -> handleGet(args)
-                "DEL"     -> handleDel(args)
-                "EXPIRE"  -> handleExpire(args)
-                "TTL"     -> handleTtl(args)
-                "EXISTS"  -> handleExists(args)
-                "KEYS"    -> handleKeys()
-                "TYPE"    -> handleType(args)
-                "ZADD"    -> handleZadd(args)
-                "ZRANK"   -> handleZrank(args)
-                "ZCARD"   -> handleZcard(args)
-                "ZPOPMIN" -> handleZpopmin(args)
-                "ZRANGE"  -> handleZrange(args)
-                "INCR"    -> handleIncr(args)
-                "DECR"    -> handleDecr(args)
-                "COMMAND" -> RespEncoder.simpleString("OK")
-                else      -> RespEncoder.error("ERR unknown command '${args[0]}'")
-            }
-        } catch (e: WrongTypeException) {
-            RespEncoder.error(e.message ?: "WRONGTYPE error")
+        val response = when (args[0].uppercase()) {
+            "PING"    -> if (args.size > 1) RespEncoder.bulkString(args[1]) else RespEncoder.simpleString("PONG")
+            "SET"     -> handleSet(args)
+            "GET"     -> handleGet(args)
+            "DEL"     -> handleDel(args)
+            "EXPIRE"  -> handleExpire(args)
+            "TTL"     -> handleTtl(args)
+            "EXISTS"  -> handleExists(args)
+            "KEYS"    -> handleKeys()
+            "ZADD"    -> handleZadd(args)
+            "ZRANK"   -> handleZrank(args)
+            "ZCARD"   -> handleZcard(args)
+            "ZSCORE"  -> handleZscore(args)
+            "ZREM"    -> handleZrem(args)
+            "ZPOPMIN" -> handleZpopmin(args)
+            "ZRANGE"  -> handleZrange(args)
+            "COMMAND" -> RespEncoder.simpleString("OK")
+            else      -> RespEncoder.error("ERR unknown command '${args[0]}'")
         }
         ctx.writeAndFlush(response)
     }
@@ -42,7 +37,6 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
         val key = args[1]
         val value = args[2]
         var ttlMs: Long? = null
-        var nx = false
         var i = 3
         while (i < args.size) {
             when (args[i].uppercase()) {
@@ -50,17 +44,11 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
                     ?: return RespEncoder.error("ERR invalid expire time")) * 1000
                 "PX" -> ttlMs = args.getOrNull(++i)?.toLongOrNull()
                     ?: return RespEncoder.error("ERR invalid expire time")
-                "NX" -> nx = true
             }
             i++
         }
-        return if (nx) {
-            if (Store.setNx(key, value, ttlMs)) RespEncoder.simpleString("OK")
-            else RespEncoder.nullBulk()
-        } else {
-            Store.set(key, value, ttlMs)
-            RespEncoder.simpleString("OK")
-        }
+        Store.set(key, value, ttlMs)
+        return RespEncoder.simpleString("OK")
     }
 
     private fun handleGet(args: List<String>): String {
@@ -92,67 +80,56 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
 
     private fun handleKeys(): String = RespEncoder.array(Store.keys().toList())
 
-    // ── Type ────────────────────────────────────────────────────────────────
+    // ── Sorted Set 명령 (skip list 기반) ──
+    private fun fmtScore(s: Double): String =
+        if (s == s.toLong().toDouble()) s.toLong().toString() else s.toString()
 
-    private fun handleType(args: List<String>): String {
-        if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'type'")
-        return RespEncoder.simpleString(Store.type(args[1]))
-    }
-
-    // ── Sorted Set ──────────────────────────────────────────────────────────
-
-    // ZADD key score member
     private fun handleZadd(args: List<String>): String {
-        if (args.size < 4) return RespEncoder.error("ERR wrong number of arguments for 'zadd'")
-        val score = args[2].toDoubleOrNull() ?: return RespEncoder.error("ERR value is not a float")
-        return RespEncoder.integer(Store.zadd(args[1], score, args[3]))
+        if (args.size < 4 || args.size % 2 != 0) return RespEncoder.error("ERR wrong number of arguments for 'zadd'")
+        var added = 0
+        var i = 2
+        while (i + 1 < args.size) {
+            val score = args[i].toDoubleOrNull() ?: return RespEncoder.error("ERR value is not a valid float")
+            added += Store.zadd(args[1], score, args[i + 1])
+            i += 2
+        }
+        return RespEncoder.integer(added.toLong())
     }
 
-    // ZRANK key member  →  integer(rank) or null bulk
     private fun handleZrank(args: List<String>): String {
         if (args.size < 3) return RespEncoder.error("ERR wrong number of arguments for 'zrank'")
-        val rank = Store.zrank(args[1], args[2]) ?: return RespEncoder.nullBulk()
-        return RespEncoder.integer(rank)
+        val r = Store.zrank(args[1], args[2]) ?: return RespEncoder.nullBulk()
+        return RespEncoder.integer(r)
     }
 
-    // ZCARD key  →  integer
     private fun handleZcard(args: List<String>): String {
         if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'zcard'")
-        return RespEncoder.integer(Store.zcard(args[1]))
+        return RespEncoder.integer(Store.zcard(args[1]).toLong())
     }
 
-    // ZPOPMIN key [count]  →  array of [member, score, member, score, ...]
+    private fun handleZscore(args: List<String>): String {
+        if (args.size < 3) return RespEncoder.error("ERR wrong number of arguments for 'zscore'")
+        val s = Store.zscore(args[1], args[2]) ?: return RespEncoder.nullBulk()
+        return RespEncoder.bulkString(fmtScore(s))
+    }
+
+    private fun handleZrem(args: List<String>): String {
+        if (args.size < 3) return RespEncoder.error("ERR wrong number of arguments for 'zrem'")
+        return RespEncoder.integer(Store.zrem(args[1], args[2]).toLong())
+    }
+
     private fun handleZpopmin(args: List<String>): String {
         if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'zpopmin'")
-        val count = args.getOrNull(2)?.toIntOrNull() ?: 1
-        val popped = Store.zpopmin(args[1], count)
-        val flat = popped.flatMap { (member, score) -> listOf(member, score.toLong().toString()) }
+        val n = args.getOrNull(2)?.toIntOrNull() ?: 1
+        val flat = Store.zpopmin(args[1], n).flatMap { listOf(it.first, fmtScore(it.second)) }
         return RespEncoder.array(flat)
     }
 
-    // ZRANGE key 0 -1 [WITHSCORES]
     private fun handleZrange(args: List<String>): String {
         if (args.size < 4) return RespEncoder.error("ERR wrong number of arguments for 'zrange'")
-        val withScores = args.getOrNull(4)?.uppercase() == "WITHSCORES"
-        val members = Store.zrange(args[1])
-        val flat = if (withScores) {
-            members.flatMap { (member, score) -> listOf(member, score.toLong().toString()) }
-        } else {
-            members.map { it.first }
-        }
-        return RespEncoder.array(flat)
-    }
-
-    // ── INCR / DECR ─────────────────────────────────────────────────────────
-
-    private fun handleIncr(args: List<String>): String {
-        if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'incr'")
-        return RespEncoder.integer(Store.incr(args[1]))
-    }
-
-    private fun handleDecr(args: List<String>): String {
-        if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'decr'")
-        return RespEncoder.integer(Store.decr(args[1]))
+        val start = args[2].toLongOrNull() ?: return RespEncoder.error("ERR value is not an integer")
+        val end = args[3].toLongOrNull() ?: return RespEncoder.error("ERR value is not an integer")
+        return RespEncoder.array(Store.zrange(args[1], start, end).map { it.first })
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
