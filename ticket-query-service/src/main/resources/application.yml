@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: ticket-query-service
+  jpa:
+    hibernate:
+      # read DB의 스키마는 query가 소유(primary에 부팅 시 생성). standby는 스트리밍 복제로 따라옴.
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+# Primary/Replica 라우팅 (DataSourceConfig).
+#   primary = consumer가 쓰는 read model(ticket_read_db).
+#   replica = primary의 Postgres 스트리밍 standby. 읽기 API가 여기서 읽음.
+#   REPLICA_* 미설정 시 replica가 primary로 폴백 → standby 없이도 동작(회귀 없음).
+datasource:
+  username: ${DB_USERNAME:hbrc}
+  password: ${DB_PASSWORD:}
+  primary:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ticket_read_db}
+  replica:
+    url: jdbc:postgresql://${REPLICA_DB_HOST:${DB_HOST:localhost}}:${REPLICA_DB_PORT:${DB_PORT:5432}}/${DB_NAME:ticket_read_db}
+
+mykafka:
+  host: ${KAFKA_HOST:localhost}
+  port: ${KAFKA_PORT:9092}
+
+server:
+  port: ${PORT:8083}
+
+# 모니터링: Prometheus가 /actuator/prometheus를 스크랩 (RUN_LOG §19)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
