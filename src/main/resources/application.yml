@@ -8,6 +8,11 @@ myredis:
   port: ${MYREDIS_PORT:6379}
   pool-size: 4
 
+# 대기열 slot(동시 입장 허용 수). 기본 1000. env QUEUE_MAX_ACTIVE_CAP로 조절.
+#   admit 스케줄러가 activeCount < slot 일 때만 입장시킨다 → 처리량 상한.
+queue:
+  max-active-cap: ${QUEUE_MAX_ACTIVE_CAP:1000}
+
 # 모니터링: 기본은 health만 노출(prometheus/metrics 비활성).
 #   Prometheus로 다시 긁으려면 MANAGEMENT_EXPOSURE=health,prometheus,metrics 로 재기동.
 #   (L4 로드밸런서 경유로 긁으면 비즈니스 경로로 새어 openmetrics 변환 에러가 났었음 → 기본 비활성)
