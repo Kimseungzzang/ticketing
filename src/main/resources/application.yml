@@ -8,12 +8,14 @@ myredis:
   port: ${MYREDIS_PORT:6379}
   pool-size: 4
 
-# 모니터링: Prometheus가 /actuator/prometheus를 스크랩 (RUN_LOG §19)
+# 모니터링: 기본은 health만 노출(prometheus/metrics 비활성).
+#   Prometheus로 다시 긁으려면 MANAGEMENT_EXPOSURE=health,prometheus,metrics 로 재기동.
+#   (L4 로드밸런서 경유로 긁으면 비즈니스 경로로 새어 openmetrics 변환 에러가 났었음 → 기본 비활성)
 management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus,metrics
+        include: ${MANAGEMENT_EXPOSURE:health}
   metrics:
     tags:
       application: queue-service
