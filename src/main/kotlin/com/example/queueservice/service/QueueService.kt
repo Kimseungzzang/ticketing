@@ -1,14 +1,15 @@
 package com.example.queueservice.service
 
-import com.example.myredisclient.MyRedisTemplate
 import com.example.queueservice.dto.QueueStatusResponse
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
+import java.time.Duration
 import java.util.UUID
 
 @Service
 class QueueService(
-    private val myRedisTemplate: MyRedisTemplate,
+    private val redisTemplate: StringRedisTemplate,
     // slot(동시 입장 허용 수) — env QUEUE_maxActiveCap로 조절(기본 5). 늘리면 admit이 한 번에 더 많이 빼가 큐가 빨리 빠진다.
     @Value("\${queue.max-active-cap:5}") private val maxActiveCap: Int,
 ) {
@@ -23,31 +24,31 @@ class QueueService(
     }
 
     fun enter(userId: String, eventId: String): QueueStatusResponse {
-        val existingToken = myRedisTemplate.getKey(entryTokenKey(userId))
+        val existingToken = redisTemplate.opsForValue().get(entryTokenKey(userId))
         if (existingToken != null) {
             return QueueStatusResponse(
                 status = "READY",
                 position = 0,
-                total = myRedisTemplate.zcard(queueKey(eventId)),
+                total = zcard(queueKey(eventId)),
                 entryToken = existingToken,
             )
         }
 
-        val existingRank = myRedisTemplate.zrank(queueKey(eventId), userId)
+        val existingRank = redisTemplate.opsForZSet().rank(queueKey(eventId), userId)
         if (existingRank != null) {
             return QueueStatusResponse(
                 status = "WAITING",
                 position = existingRank + 1,
-                total = myRedisTemplate.zcard(queueKey(eventId)),
+                total = zcard(queueKey(eventId)),
                 entryToken = null,
             )
         }
 
         val score = System.currentTimeMillis()
-        myRedisTemplate.zadd(queueKey(eventId), score, userId)
+        redisTemplate.opsForZSet().add(queueKey(eventId), userId, score.toDouble())
 
-        val position = (myRedisTemplate.zrank(queueKey(eventId), userId) ?: 0) + 1
-        val total    = myRedisTemplate.zcard(queueKey(eventId))
+        val position = (redisTemplate.opsForZSet().rank(queueKey(eventId), userId) ?: 0) + 1
+        val total    = zcard(queueKey(eventId))
 
         // 새 대기열 진입만 로그(이미 있는 유저의 재요청은 위에서 early-return되어 조용).
         //   ※ status(폴링)엔 로그가 없다 — 켜면 부하테스트 때 초당 수천 줄로 폭증하므로.
@@ -62,55 +63,53 @@ class QueueService(
     }
 
     fun status(userId: String, eventId: String): QueueStatusResponse {
-        val entryToken = myRedisTemplate.getKey(entryTokenKey(userId))
+        val entryToken = redisTemplate.opsForValue().get(entryTokenKey(userId))
         if (entryToken != null) {
             return QueueStatusResponse(
                 status = "READY",
                 position = 0,
-                total = myRedisTemplate.zcard(queueKey(eventId)),
+                total = zcard(queueKey(eventId)),
                 entryToken = entryToken,
             )
         }
 
-        val rank = myRedisTemplate.zrank(queueKey(eventId), userId)
+        val rank = redisTemplate.opsForZSet().rank(queueKey(eventId), userId)
             ?: return QueueStatusResponse(
                 status = "NOT_IN_QUEUE",
                 position = null,
-                total = myRedisTemplate.zcard(queueKey(eventId)),
+                total = zcard(queueKey(eventId)),
                 entryToken = null,
             )
 
         return QueueStatusResponse(
             status = "WAITING",
             position = rank + 1,
-            total = myRedisTemplate.zcard(queueKey(eventId)),
+            total = zcard(queueKey(eventId)),
             entryToken = null,
         )
     }
 
     fun release(userId: String, eventId: String) {
-        val admittedEventId = myRedisTemplate.getKey(admittedKey(userId)) ?: return
-        myRedisTemplate.delKey(admittedKey(userId))
-        myRedisTemplate.delKey(entryTokenKey(userId))
+        val admittedEventId = redisTemplate.opsForValue().get(admittedKey(userId)) ?: return
+        redisTemplate.delete(admittedKey(userId))
+        redisTemplate.delete(entryTokenKey(userId))
         // Guard against negative count from double-release races
-        val current = myRedisTemplate.getKey(activeCountKey(admittedEventId))?.toLongOrNull() ?: 0L
+        val current = redisTemplate.opsForValue().get(activeCountKey(admittedEventId))?.toLongOrNull() ?: 0L
         if (current > 0) {
-            val newCount = myRedisTemplate.decrKey(activeCountKey(admittedEventId))
+            val newCount = redisTemplate.opsForValue().decrement(activeCountKey(admittedEventId)) ?: 0L
             println("[QUEUE] release  userId=$userId  activeCount=$newCount")
         }
     }
 
     fun validateEntryToken(userId: String, entryToken: String): Boolean {
-        val stored = myRedisTemplate.getKey(entryTokenKey(userId))
+        val stored = redisTemplate.opsForValue().get(entryTokenKey(userId))
         return stored != null && stored == entryToken
     }
 
     fun waitingEventIds(): Set<String> =
-        myRedisTemplate.keysAll()
-            .mapNotNull { key ->
-                if (key.startsWith(QUEUE_KEY_PREFIX)) key.removePrefix(QUEUE_KEY_PREFIX) else null
-            }
-            .filter { eventId -> myRedisTemplate.zcard(queueKey(eventId)) > 0 }
+        (redisTemplate.keys("$QUEUE_KEY_PREFIX*") ?: emptySet())
+            .map { key -> key.removePrefix(QUEUE_KEY_PREFIX) }
+            .filter { eventId -> zcard(queueKey(eventId)) > 0 }
             .toSet()
 
     // 낙관적 동시성 제어(낙관적 락) — 리더 선출(분산락) 없이 여러 인스턴스가 동시에 admit해도 안전하다.
@@ -120,22 +119,24 @@ class QueueService(
     fun admitFromQueue(eventId: String) {
         while (true) {
             // 1) slot 하나를 낙관적으로 선점 (원자적 INCR)
-            val newCount = myRedisTemplate.incrKey(activeCountKey(eventId))
+            val newCount = redisTemplate.opsForValue().increment(activeCountKey(eventId)) ?: return
             if (newCount > maxActiveCap) {
-                myRedisTemplate.decrKey(activeCountKey(eventId))   // slot 초과 → 선점 롤백, 종료
+                redisTemplate.opsForValue().decrement(activeCountKey(eventId))   // slot 초과 → 선점 롤백, 종료
                 return
             }
             // 2) 대기열 맨 앞 한 명을 뺀다 (원자적 ZPOPMIN)
-            val userId = myRedisTemplate.zpopmin(queueKey(eventId), 1).firstOrNull()
+            val userId = redisTemplate.opsForZSet().popMin(queueKey(eventId), 1)?.firstOrNull()?.value
             if (userId == null) {
-                myRedisTemplate.decrKey(activeCountKey(eventId))   // 큐가 비었음 → 선점 롤백, 종료
+                redisTemplate.opsForValue().decrement(activeCountKey(eventId))   // 큐가 비었음 → 선점 롤백, 종료
                 return
             }
             // 3) 입장 확정: 토큰 발급 + admitted 표시
             val token = UUID.randomUUID().toString()
-            myRedisTemplate.setKey(entryTokenKey(userId), token, ENTRY_TOKEN_TTL_SEC)
-            myRedisTemplate.setKey(admittedKey(userId), eventId, -1)
+            redisTemplate.opsForValue().set(entryTokenKey(userId), token, Duration.ofSeconds(ENTRY_TOKEN_TTL_SEC))
+            redisTemplate.opsForValue().set(admittedKey(userId), eventId)
             println("[QUEUE] admitted  userId=$userId  token=$token  activeCount=$newCount")
         }
     }
+
+    private fun zcard(key: String): Long = redisTemplate.opsForZSet().zCard(key) ?: 0L
 }

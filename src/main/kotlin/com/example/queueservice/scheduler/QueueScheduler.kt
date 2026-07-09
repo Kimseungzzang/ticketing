@@ -1,6 +1,5 @@
 package com.example.queueservice.scheduler
 
-import com.example.myredisclient.MyRedisTemplate
 import com.example.queueservice.service.QueueService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled

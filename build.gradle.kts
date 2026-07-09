@@ -35,7 +35,9 @@ repositories {
 }
 
 dependencies {
-    implementation("com.example:myredis-client-starter:1.0.5")
+    // Redis client를 자체 구현(myredis-client-starter, pool-size=4 고정 블로킹 소켓)에서
+    // Lettuce(Spring Data Redis 기본, Netty 기반 비동기 멀티플렉싱 — 별도 pool 설정 불필요)로 교체.
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
     // 모니터링: actuator /actuator/prometheus 노출 → Prometheus 스크랩 (RUN_LOG §19)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")

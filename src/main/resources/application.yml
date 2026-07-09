@@ -1,12 +1,15 @@
 server:
   port: 8082
 
-myredis:
-  # LAN 다원화: 각 기기의 queue가 '중앙 Redis 한 대'를 바라봐야 sorted set/리더락이 공유된다.
-  #   MYREDIS_HOST=<중앙기기IP>로 지정. 미지정 시 localhost(단일 기기 테스트).
-  host: ${MYREDIS_HOST:localhost}
-  port: ${MYREDIS_PORT:6379}
-  pool-size: 4
+spring:
+  data:
+    redis:
+      # LAN 다원화: 각 기기의 queue가 '중앙 Redis 한 대'를 바라봐야 sorted set/리더락이 공유된다.
+      #   MYREDIS_HOST=<중앙기기IP>로 지정. 미지정 시 localhost(단일 기기 테스트).
+      # Lettuce는 기본적으로 커넥션 하나를 멀티플렉싱해서 쓰므로(myredis-client-starter의 pool-size=4처럼
+      # 고정 개수를 빌렸다 반납하는 블로킹 풀이 아님) 별도 pool 설정을 안 둔다.
+      host: ${MYREDIS_HOST:localhost}
+      port: ${MYREDIS_PORT:6379}
 
 # 대기열 slot(동시 입장 허용 수). 기본 1000. env QUEUE_MAX_ACTIVE_CAP로 조절.
 #   admit 스케줄러가 activeCount < slot 일 때만 입장시킨다 → 처리량 상한.
