@@ -49,6 +49,10 @@ class QueueService(
         val position = (myRedisTemplate.zrank(queueKey(eventId), userId) ?: 0) + 1
         val total    = myRedisTemplate.zcard(queueKey(eventId))
 
+        // 새 대기열 진입만 로그(이미 있는 유저의 재요청은 위에서 early-return되어 조용).
+        //   ※ status(폴링)엔 로그가 없다 — 켜면 부하테스트 때 초당 수천 줄로 폭증하므로.
+        println("[QUEUE] enter  userId=$userId  eventId=$eventId  position=$position/$total")
+
         return QueueStatusResponse(
             status = "WAITING",
             position = position,
