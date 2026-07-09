@@ -113,32 +113,29 @@ class QueueService(
             .filter { eventId -> myRedisTemplate.zcard(queueKey(eventId)) > 0 }
             .toSet()
 
+    // 낙관적 동시성 제어(낙관적 락) — 리더 선출(분산락) 없이 여러 인스턴스가 동시에 admit해도 안전하다.
+    //   slot 하나를 activeCount INCR로 '먼저' 원자적 선점 → cap 초과면 즉시 DECR 롤백.
+    //   INCR/DECR/ZPOPMIN이 각각 원자적이라, 동시에 돌아도 cap을 넘겨 입장시키지 않는다.
+    //   (기존 비관적 배치: slotsAvailable 계산 후 zpopmin(N) — 계산~반영 사이 race로 초과 가능했음)
     fun admitFromQueue(eventId: String) {
-        val activeCount    = myRedisTemplate.getKey(activeCountKey(eventId))?.toLongOrNull() ?: 0L
-        val slotsAvailable = (maxActiveCap - activeCount).toInt()
-
-        if (slotsAvailable <= 0) {
-            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$maxActiveCap  no slots")
-            return
-        }
-
-        val admitted = myRedisTemplate.zpopmin(queueKey(eventId), slotsAvailable)
-        if (admitted.isEmpty()) {
-            println("[QUEUE] scheduler  eventId=$eventId  active=$activeCount/$maxActiveCap  queue empty")
-            return
-        }
-
-        for (userId in admitted) {
-            val alreadyHasSlot = myRedisTemplate.getKey(admittedKey(userId)) != null
+        while (true) {
+            // 1) slot 하나를 낙관적으로 선점 (원자적 INCR)
+            val newCount = myRedisTemplate.incrKey(activeCountKey(eventId))
+            if (newCount > maxActiveCap) {
+                myRedisTemplate.decrKey(activeCountKey(eventId))   // slot 초과 → 선점 롤백, 종료
+                return
+            }
+            // 2) 대기열 맨 앞 한 명을 뺀다 (원자적 ZPOPMIN)
+            val userId = myRedisTemplate.zpopmin(queueKey(eventId), 1).firstOrNull()
+            if (userId == null) {
+                myRedisTemplate.decrKey(activeCountKey(eventId))   // 큐가 비었음 → 선점 롤백, 종료
+                return
+            }
+            // 3) 입장 확정: 토큰 발급 + admitted 표시
             val token = UUID.randomUUID().toString()
             myRedisTemplate.setKey(entryTokenKey(userId), token, ENTRY_TOKEN_TTL_SEC)
             myRedisTemplate.setKey(admittedKey(userId), eventId, -1)
-            if (alreadyHasSlot) {
-                println("[QUEUE] re-admitted  userId=$userId  token=$token  (slot reused)")
-            } else {
-                val newCount = myRedisTemplate.incrKey(activeCountKey(eventId))
-                println("[QUEUE] admitted  userId=$userId  token=$token  activeCount=$newCount")
-            }
+            println("[QUEUE] admitted  userId=$userId  token=$token  activeCount=$newCount")
         }
     }
 }
