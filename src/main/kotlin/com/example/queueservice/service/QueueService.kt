@@ -12,6 +12,11 @@ class QueueService(
     private val redisTemplate: StringRedisTemplate,
     // slot(동시 입장 허용 수) — env QUEUE_MAX_ACTIVE_CAP로 조절(기본 1000). admit이 활성 수 < slot일 때만 입장시킨다.
     @Value("\${queue.max-active-cap:5}") private val maxActiveCap: Int,
+    // admit 동시성 제어 토글 — Before/After 실측용. env QUEUE_ADMIT_GUARD.
+    //   optimistic(기본): ZADD 선점 + 초과 롤백 → 다중 인스턴스 동시 admit에도 slot 초과 없음.
+    //   naive           : 옛 방식 재현(활성 수 읽고→가용분 계산→배치 pop). 계산~반영 사이 race로
+    //                     여러 인스턴스가 같은 가용분을 중복으로 보고 → slot 초과(oversell) 발생 가능.
+    @Value("\${queue.admit-guard:optimistic}") private val admitGuard: String,
 ) {
     companion object {
         const val ENTRY_TOKEN_TTL_SEC = 300L
@@ -119,32 +124,51 @@ class QueueService(
     //   ZPOPMIN/ZADD/ZCARD/ZREM이 각각 원자적이라, 리더 선출 없이 여러 인스턴스가 동시에 admit해도 slot을 넘지 않는다.
     fun admitFromQueue(eventId: String) {
         val now = System.currentTimeMillis()
-        // (1) TTL 자동 정리: 만료된 활성 유저 회수 (release 없이 이탈한 경우까지 slot을 되돌림)
+        // TTL 자동 정리(공통): 만료된(결제시간 초과·이탈) 활성 유저 회수 → stale 슬롯 방지
         redisTemplate.opsForZSet().removeRangeByScore(activeZKey(eventId), Double.NEGATIVE_INFINITY, now.toDouble())
+        if (admitGuard == "naive") admitNaive(eventId, now) else admitOptimistic(eventId, now)
+    }
 
+    // [optimistic] ZPOPMIN 확보 → ZADD 선점 → ZCARD 초과 시 롤백(활성 제거 + 큐 복원).
+    //   ZPOPMIN/ZADD/ZCARD/ZREM이 각각 원자적이라, 여러 인스턴스가 동시에 admit해도 slot을 넘지 않는다.
+    private fun admitOptimistic(eventId: String, now: Long) {
         while (true) {
-            // (2) 큐 맨 앞 한 명을 원자적으로 확보
             val popped = redisTemplate.opsForZSet().popMin(queueKey(eventId), 1)?.firstOrNull() ?: return
             val userId = popped.value ?: return
             val origScore = popped.score
-
-            // (3) 낙관적 선점: 활성 집합에 등록(만료시각 = now + TTL) 후 초과 검사
             val expireAt = (now + ADMIT_TTL_SEC * 1000).toDouble()
             redisTemplate.opsForZSet().add(activeZKey(eventId), userId, expireAt)
             val active = zcard(activeZKey(eventId))
             if (active > maxActiveCap) {
-                // slot 초과 → 롤백: 활성에서 제거 + 큐 원래 자리(score)로 복원
-                redisTemplate.opsForZSet().remove(activeZKey(eventId), userId)
+                redisTemplate.opsForZSet().remove(activeZKey(eventId), userId)          // 초과 → 롤백
                 if (origScore != null) redisTemplate.opsForZSet().add(queueKey(eventId), userId, origScore)
                 return
             }
-
-            // (4) 입장 확정: 토큰 발급 + admitted 표시(둘 다 TTL — 이탈해도 자동 만료)
-            val token = UUID.randomUUID().toString()
-            redisTemplate.opsForValue().set(entryTokenKey(userId), token, Duration.ofSeconds(ENTRY_TOKEN_TTL_SEC))
-            redisTemplate.opsForValue().set(admittedKey(userId), eventId, Duration.ofSeconds(ADMIT_TTL_SEC))
-            println("[QUEUE] admitted  userId=$userId  token=$token  active=$active/$maxActiveCap")
+            issueToken(eventId, userId, active)
         }
+    }
+
+    // [naive] 옛 방식 재현: 활성 수를 먼저 읽어 '가용분'을 계산 → 그만큼 배치 pop → 초과 검사 없이 등록.
+    //   계산(활성 수 조회)과 반영(pop+등록) 사이에 다른 인스턴스가 동시에 같은 가용분을 보면 둘 다 pop해
+    //   slot을 초과(oversell)한다. Before/After 실측의 Before용 — 절대 운영에 쓰지 말 것.
+    private fun admitNaive(eventId: String, now: Long) {
+        val active = zcard(activeZKey(eventId))
+        val slotsAvailable = (maxActiveCap - active).toInt()
+        if (slotsAvailable <= 0) return
+        val popped = redisTemplate.opsForZSet().popMin(queueKey(eventId), slotsAvailable.toLong()) ?: return
+        val expireAt = (now + ADMIT_TTL_SEC * 1000).toDouble()
+        for (t in popped) {
+            val userId = t.value ?: continue
+            redisTemplate.opsForZSet().add(activeZKey(eventId), userId, expireAt)       // 초과 검사 없음 → race 시 oversell
+            issueToken(eventId, userId, zcard(activeZKey(eventId)))
+        }
+    }
+
+    private fun issueToken(eventId: String, userId: String, active: Long) {
+        val token = UUID.randomUUID().toString()
+        redisTemplate.opsForValue().set(entryTokenKey(userId), token, Duration.ofSeconds(ENTRY_TOKEN_TTL_SEC))
+        redisTemplate.opsForValue().set(admittedKey(userId), eventId, Duration.ofSeconds(ADMIT_TTL_SEC))
+        println("[QUEUE] admitted  userId=$userId  token=$token  active=$active/$maxActiveCap  guard=$admitGuard")
     }
 
     private fun zcard(key: String): Long = redisTemplate.opsForZSet().zCard(key) ?: 0L
