@@ -1,95 +1,12 @@
-# booking-service
+# booking-service — 좌석 확정 (CQRS Write)
 
-좌석 예약 및 예약 상태 관리를 담당하는 서비스입니다.
+> 좌석 확정(write)을 처리하고 MyKafka `booking-events`를 발행. CQRS 쓰기 진입점.
+> 🏠 전체 구조: **[메인 README](https://github.com/Kimseungzzang/ticketing/blob/main/README.md)**
 
-- **Port**: 8083
-- **Stack**: Spring Boot (Kotlin), PostgreSQL, myRedis
+## 역할
+- 좌석 확정 — Redis **분산락(SET NX)** 으로 동시 예약(중복 좌석) 방지
+- 확정 시 **MyKafka `booking-events` 발행** → `ticket-query`가 소비해 read model 갱신 (CQRS)
+- 발행 payload에 W3C `traceparent`를 실어 카프카 건너 분산추적 연결
 
-## 실행 방법
-
-### 1. 사전 요구사항
-
-- JDK 21
-- PostgreSQL
-- myRedis (port 6379) — [`myRedis` 브랜치](../../tree/myRedis) 참고
-- gateway-service 경유 필요 (X-User-Id 헤더)
-
-### 2. 데이터베이스 생성
-
-```bash
-psql -U kimseungzzang -f schema.sql
-```
-
-좌석 시드 데이터는 서비스 기동 시 자동으로 삽입됩니다 (`SeatDataInitializer`).
-
-### 3. 환경변수 설정
-
-프로젝트 루트에 `.env` 파일 생성:
-
-```env
-GITHUB_ACTOR=your_github_username
-GITHUB_TOKEN=your_github_token
-DB_USERNAME=kimseungzzang
-DB_PASSWORD=
-```
-
-### 4. 실행
-
-```bash
-./gradlew bootRun
-```
-
-## API
-
-### 좌석 조회
-
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/seats/{eventId}` | 이벤트 좌석 목록 및 잔여 현황 조회 |
-| GET | `/api/seats/{eventId}/availability` | 전체/잔여 좌석 수 조회 (좌석 선택 화면 진입 전 pre-check용) |
-
-### 예약
-
-| Method | Path | 설명 |
-|--------|------|------|
-| POST | `/api/booking` | 예약 생성 (entryToken 필요) |
-| GET | `/api/booking/{bookingId}` | 예약 조회 |
-| POST | `/api/booking/{bookingId}/confirm` | 예약 확정 |
-| DELETE | `/api/booking/{bookingId}` | 예약 취소 |
-
-## 예약 생성 요청 예시
-
-```bash
-curl -X POST http://localhost:8080/api/booking \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer {accessToken}" \
-  -d '{
-    "eventId": "EVT2026-001",
-    "seatId": "S-A-1",
-    "entryToken": "{entryToken}"
-  }'
-```
-
-## 예약 흐름
-
-```
-POST /api/booking
-  → entryToken 검증 (Redis queue:entry:{userId})
-  → 좌석 잠금 SET NX (Redis booking:lock:{eventId}:{seatId}, TTL 10s)
-  → seats 테이블 status → TAKEN
-  → bookings 테이블 INSERT (status: PENDING)
-```
-
-## Redis 키
-
-| 키 | 타입 | 용도 | TTL |
-|----|------|------|-----|
-| `booking:seats:remaining:{eventId}` | String | 잔여 좌석 수 캐시 (pre-check용, 예약/취소 시 동기화) | — |
-| `booking:lock:{eventId}:{seatId}` | String | 좌석 동시 예약 방지 잠금 | 10s |
-
-## 데이터베이스
-
-| 테이블 | 설명 |
-|--------|------|
-| `seats` | 이벤트별 전체 좌석 (AVAILABLE / TAKEN) |
-| `bookings` | 예약 내역 (PENDING / CONFIRMED / CANCELLED) |
+## 기술 스택
+`Kotlin` · `Spring Boot` · `PostgreSQL` · `Redis` · `MyKafka`
