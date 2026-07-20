@@ -108,11 +108,35 @@
 
 ---
 
+## 2026-07-20 — CQRS 뒷단: MyKafka 발행 → ticket-query 전파 지연
+
+> 앞단(대기열)과 별개로 **CQRS 읽기 파이프라인**(이벤트 발행 → 소비 → read projection)을 측정.
+> **환경**: MyKafka broker(:9092) + ticket-query(`booking-events` 소비, :8083) + `ticket_read_db`.
+> **발행자** = mykafka `client:lagLoad` (booking-events 단건 발행, rate 고정) — **booking 서비스를 우회해 좌석 제약 없이 순수 파이프라인만 측정**. read_db `reservations` count를 0.5s 간격 polling해 반영을 추적. 로컬 단일 머신.
+
+### 단계별 발행 부하 (booking-events, 각 20초)
+
+| 발행 rate | 실제 발행 | 소비 peak | 순간 백로그(20s 시점) | 최종 수렴 |
+|---|---|---|---|---|
+| 100/s | 100/s | 118/s | 16건 | **2,000 / 2,000** |
+| 500/s | 500/s | 894/s | 135건 | **10,000 / 10,000** |
+| 1,000/s | 1,000/s | **2,006/s** | 109건 | **20,000 / 20,000** |
+
+- **소비 처리량 > 발행 rate** — consumer가 밀린 이벤트를 batch fetch로 따라잡음 (peak 2,006/s).
+- 모든 rate에서 **순간 백로그 ≤ 135건, 완전 수렴(손실 0)** — 무한 적체 없음.
+- **전파 지연 추정 ~50–70ms** (순간 백로그 ÷ 소비 처리량; read_db polling 0.5s 해상도라 추정치).
+- **포화점 미도달**: consumer 처리 천장이 2,000/s 이상이라 1,000/s는 여유 구간.
+- ⚠️ 한계: 발행자 단일(gradle busy-wait) · read_db polling 해상도 · 동일 머신. **포화점(백로그 폭증 시작 rps)은 더 높은 rate + produceBatch 발행자로 재측정 필요.**
+
+---
+
 ### 검증된 것 / 남은 것
 
+- ✅ **CQRS 뒷단**: 1,000 events/s 발행까지 백로그 없이 **실시간 수렴(손실 0)**, 전파 지연 ~50–70ms 추정
 - ✅ 동시성 제어 **Before/After 실측**: naive는 oversell +93, 낙관적 락은 초과 0
 - ✅ 다중화 3대 동시 admit에도 **active ≤ slot** (낙관적 락 정합성)
 - ✅ 이탈 유저 slot **TTL 자동 회수** (ZREMRANGEBYSCORE)
 - ✅ 단계별 100/500/1000rps **에러율 0%**, p99 < 3.2ms, 정합성 유지
 - ⏳ 서버 처리량 천장: 부하생성기 분리 + 더 높은 rps로 재측정 필요 (현재는 저부하 구간)
 - ⏳ admit 부하 균등 분산: 선착순이라 불균등 — 필요 시 인스턴스별 admit 배치 상한 등 검토
+- ⏳ CQRS 포화점: 더 높은 발행 rate(2,000~8,000/s)로 백로그 폭증 지점(consumer 천장) 재측정
