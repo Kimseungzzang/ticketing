@@ -8,7 +8,7 @@ plugins {
 group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
-extra["springCloudVersion"] = "2025.0.0"
+extra["springCloudVersion"] = "2025.1.1"
 
 repositories {
     mavenCentral()
@@ -21,7 +21,7 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation("org.springframework.cloud:spring-cloud-starter-gateway")
+    implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webflux")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")

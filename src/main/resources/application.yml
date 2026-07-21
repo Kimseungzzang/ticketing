@@ -1,51 +1,54 @@
 server:
-  port: 8080
+  port: 8090
 
 auth:
   service:
     url: http://localhost:8081
-  public-paths:
-    - /api/auth/register
-    - /api/auth/login
-    - /api/auth/refresh
+  public-paths: /api/auth/register,/api/auth/login,/api/auth/refresh
 
 spring:
   cloud:
     gateway:
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins: "http://localhost:3000"
-            allowedMethods: "*"
-            allowedHeaders: "*"
-            allowCredentials: true
-      routes:
-        - id: auth-service
-          uri: http://localhost:8081
-          predicates:
-            - Path=/api/auth/**
-        - id: queue-service
-          uri: http://localhost:8082
-          predicates:
-            - Path=/api/queue/**
-        - id: booking-service
-          uri: http://localhost:8083
-          predicates:
-            - Path=/api/booking/**
+      server:
+        webflux:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins: "http://localhost:3000"
+                allowedMethods: "*"
+                allowedHeaders: "*"
+                allowCredentials: true
+          routes:
+            - id: auth-service
+              uri: http://localhost:8081
+              predicates:
+                - Path=/api/auth/**
+            - id: queue-service
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/queue/**
+            - id: booking-service
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/booking/**
+            - id: booking-service-seats
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/seats/**
 
-        # --- CQRS 예약 서버 (ticket-command/query) — 같은 /reservations 경로를 HTTP 메서드로 분기 ---
-        # 쓰기: POST/DELETE → ticket-command(:8082) / 읽기: GET → ticket-query(:8083)
-        - id: ticket-command
-          uri: http://localhost:8082
-          predicates:
-            - Path=/reservations,/reservations/**
-            - Method=POST,DELETE
-        - id: ticket-query-reservations
-          uri: http://localhost:8083
-          predicates:
-            - Path=/reservations,/reservations/**
-            - Method=GET
-        - id: ticket-query-events
-          uri: http://localhost:8083
-          predicates:
-            - Path=/events,/events/**
+            # --- CQRS 예약 서버 (ticket-command/query) — 같은 /reservations 경로를 HTTP 메서드로 분기 ---
+            # 쓰기: POST/DELETE → ticket-command(:8084) / 읽기: GET → ticket-query(:8085)
+            - id: ticket-command
+              uri: http://localhost:8084
+              predicates:
+                - Path=/reservations,/reservations/**
+                - Method=POST,DELETE
+            - id: ticket-query-reservations
+              uri: http://localhost:8085
+              predicates:
+                - Path=/reservations,/reservations/**
+                - Method=GET
+            - id: ticket-query-events
+              uri: http://localhost:8085
+              predicates:
+                - Path=/events,/events/**
