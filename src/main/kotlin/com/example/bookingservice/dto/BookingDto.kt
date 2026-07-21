@@ -28,4 +28,20 @@ data class BookingResponse(
     }
 }
 
+data class ConfirmOrderRequest(
+    val bookingIds: List<String>,
+)
+
+data class MyBookingResponse(
+    val id: String,
+    val eventId: String,
+    val seatId: String,
+    val sectionName: String,
+    val row: String,
+    val number: Int,
+    val price: Int,
+    val status: String,
+    val createdAt: String,
+)
+
 data class ErrorResponse(val message: String)

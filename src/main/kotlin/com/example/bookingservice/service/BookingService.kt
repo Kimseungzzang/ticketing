@@ -1,11 +1,15 @@
 package com.example.bookingservice.service
 
+import com.example.bookingservice.domain.Booking
+import com.example.bookingservice.domain.BookingStatus
 import com.example.bookingservice.domain.SeatStatus
 import com.example.bookingservice.dto.BookingCreateRequest
 import com.example.bookingservice.dto.BookingResponse
+import com.example.bookingservice.dto.MyBookingResponse
 import com.example.bookingservice.exception.BookingNotFoundException
 import com.example.bookingservice.exception.InvalidEntryTokenException
 import com.example.bookingservice.exception.SeatAlreadyTakenException
+import com.example.bookingservice.repository.BookingRepository
 import com.example.bookingservice.repository.SeatRepository
 import com.example.mykafka.client.MyKafkaProducer
 import com.example.myredisclient.MyRedisTemplate
@@ -20,6 +24,7 @@ import java.util.UUID
 @Service
 class BookingService(
     private val seatRepository: SeatRepository,
+    private val bookingRepository: BookingRepository,
     private val myRedisTemplate: MyRedisTemplate,
     private val myKafkaProducer: MyKafkaProducer,
     @Value("\${booking.seat.lock-ttl-sec}") private val seatLockTtlSec: Long,
@@ -62,6 +67,12 @@ class BookingService(
         )
         myRedisTemplate.decrKey(seatsRemainingKey(request.eventId))
 
+        // 누가 이 좌석을 예약했는지 영구 기록. 이게 없으면 confirm 이후엔
+        // seats.status=TAKEN만 남고 "누구였는지"를 알 방법이 없어진다.
+        bookingRepository.save(
+            Booking(id = bookingId, userId = userId, eventId = request.eventId, seatId = request.seatId),
+        )
+
         return BookingResponse(
             id = bookingId.toString(),
             userId = userId,
@@ -84,6 +95,11 @@ class BookingService(
         seatRepository.findById("$eventId:$seatId").ifPresent {
             it.status = SeatStatus.TAKEN
             seatRepository.save(it)
+        }
+        bookingRepository.findById(bookingId).ifPresent {
+            it.status = BookingStatus.CONFIRMED
+            it.updatedAt = LocalDateTime.now()
+            bookingRepository.save(it)
         }
 
         // synchronized: MyKafkaProducer는 단일 소켓이라 thread-safe하지 않다. 동시 confirm이
@@ -122,6 +138,22 @@ class BookingService(
         )
     }
 
+    fun myBookings(userId: String): List<MyBookingResponse> =
+        bookingRepository.findByUserIdOrderByCreatedAtDesc(userId).mapNotNull { booking ->
+            val seat = seatRepository.findById("${booking.eventId}:${booking.seatId}").orElse(null) ?: return@mapNotNull null
+            MyBookingResponse(
+                id = booking.id.toString(),
+                eventId = booking.eventId,
+                seatId = booking.seatId,
+                sectionName = seat.sectionName,
+                row = seat.row,
+                number = seat.number,
+                price = seat.price,
+                status = booking.status.name,
+                createdAt = booking.createdAt.toString(),
+            )
+        }
+
     // 결제 실패 시 호출 — Redis 카운터 복원, 잠금 해제
     fun cancel(bookingId: UUID) {
         val pending = myRedisTemplate.getKey(pendingBookingKey(bookingId)) ?: return
@@ -129,5 +161,10 @@ class BookingService(
         myRedisTemplate.incrKey(seatsRemainingKey(eventId))
         myRedisTemplate.delKey(seatLockKey(eventId, seatId))
         myRedisTemplate.delKey(pendingBookingKey(bookingId))
+        bookingRepository.findById(bookingId).ifPresent {
+            it.status = BookingStatus.CANCELLED
+            it.updatedAt = LocalDateTime.now()
+            bookingRepository.save(it)
+        }
     }
 }
