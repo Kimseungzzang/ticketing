@@ -72,7 +72,7 @@ class AuthService(
         val newRefreshToken = jwtService.generateRefreshToken(user.id, user.name)
         tokenRedisService.saveAccessToken(user.id, newAccessToken, jwtService.accessExpirationMillis())
         tokenRedisService.saveRefreshToken(user.id, newRefreshToken, jwtService.refreshExpirationMillis())
-        return RefreshResponse(accessToken = newAccessToken)
+        return RefreshResponse(accessToken = newAccessToken, refreshToken = newRefreshToken)
     }
 
     fun logout(userId: String): LogoutResponse {
@@ -89,9 +89,13 @@ class AuthService(
 
     fun verify(token: String): VerifyResponse {
         if (!jwtService.isValidAccessToken(token)) return VerifyResponse(valid = false)
+        val userId = jwtService.getUserId(token)
+        // 서명/만료만으로는 로그아웃(또는 재로그인으로 무효화된 이전 토큰)을 걸러낼 수 없다.
+        // Redis에 저장된 "현재 유효한" 토큰과 정확히 일치할 때만 통과시킨다.
+        if (tokenRedisService.getAccessToken(userId) != token) return VerifyResponse(valid = false)
         return VerifyResponse(
             valid = true,
-            userId = jwtService.getUserId(token),
+            userId = userId,
             name = jwtService.getName(token),
         )
     }
