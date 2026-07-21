@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { mockEvent, mockPaymentMethods, SERVICE_FEE } from '@/lib/mock-data';
+import { authFetch } from '@/lib/api';
 import StepIndicator from '@/components/StepIndicator';
 
 interface SeatInfo {
@@ -19,15 +20,17 @@ interface OrderData {
   subtotal: number;
   fees: number;
   total: number;
+  bookingIds: string[];
 }
 
-const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8083';
+const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8090';
 
 const FALLBACK: OrderData = {
   seats: [{ id: 'S-A-5', row: 'A', number: 5, price: 176000, sectionName: 'S석', sectionColor: '#D4A83A' }],
   subtotal: 176000,
   fees: SERVICE_FEE,
   total: 176000 + SERVICE_FEE,
+  bookingIds: [],
 };
 
 export default function PaymentPage() {
@@ -61,57 +64,37 @@ export default function PaymentPage() {
      cardCvv.length === 3 &&
      cardName.trim().length > 0);
 
+  // 좌석 예약(PENDING)은 이미 seats 페이지에서 만들어져 있다 — 여기서는 그 주문 전체를
+  // 한 번의 결제 확정 요청으로 처리한다 (좌석마다 따로 PG 승인받는 게 아니라 주문 단위 1회).
   const handlePay = async () => {
     if (!agreed || !cardReady) return;
+    if (order.bookingIds.length === 0) {
+      setPayError('예약 정보를 찾을 수 없습니다. 좌석을 다시 선택해 주세요.');
+      return;
+    }
     setLoading(true);
     setPayError(null);
 
-    const accessToken = localStorage.getItem('accessToken');
-    const entryToken  = localStorage.getItem('entryToken');
-    const eventId     = localStorage.getItem('entryEventId') ?? 'EVT2026-001';
-    if (!accessToken || !entryToken) { router.replace('/'); return; }
-
-    const createdIds: string[] = [];
-
     try {
-      // 1. 각 좌석 예약 생성 (Redis DECR)
-      for (const seat of order.seats) {
-        const res = await fetch(`${BOOKING_API}/api/booking`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ eventId, seatId: seat.id, entryToken }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ message: '예약 생성 실패' })) as { message?: string };
-          throw new Error(err.message ?? '예약 생성 실패');
-        }
-        const data = await res.json() as { id: string };
-        createdIds.push(data.id);
+      const res = await authFetch(`${BOOKING_API}/api/booking/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingIds: order.bookingIds }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: '결제 확정에 실패했습니다' })) as { message?: string };
+        throw new Error(err.message ?? '결제 확정에 실패했습니다');
       }
 
-      // 2. 결제 처리 (mock 1.5s)
-      await new Promise(r => setTimeout(r, 1500));
-
-      // 3. 결제 성공 → DB write-back (confirm)
-      for (const bookingId of createdIds) {
-        await fetch(`${BOOKING_API}/api/booking/${bookingId}/confirm`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      sessionStorage.setItem('bookingIds', JSON.stringify(createdIds));
+      sessionStorage.setItem('bookingIds', JSON.stringify(order.bookingIds));
       localStorage.removeItem('entryToken');
       localStorage.removeItem('entryEventId');
       router.push('/confirmation');
 
     } catch (err) {
-      // 결제 실패 → Redis count 복원
-      for (const bookingId of createdIds) {
-        await fetch(`${BOOKING_API}/api/booking/${bookingId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }).catch(() => {});
+      // 결제 실패 → 예약 취소(Redis count 복원, 좌석 잠금 해제)
+      for (const bookingId of order.bookingIds) {
+        await authFetch(`${BOOKING_API}/api/booking/${bookingId}`, { method: 'DELETE' }).catch(() => {});
       }
       setPayError(err instanceof Error ? err.message : '결제 처리 중 오류가 발생했습니다.');
       setLoading(false);

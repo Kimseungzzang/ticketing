@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { mockEvent, SERVICE_FEE } from '@/lib/mock-data';
+import { authFetch } from '@/lib/api';
 import StepIndicator from '@/components/StepIndicator';
 
-const QUEUE_API   = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL   ?? 'http://localhost:8082';
-const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8083';
+const QUEUE_API   = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL   ?? 'http://localhost:8090';
+const BOOKING_API = process.env.NEXT_PUBLIC_BOOKING_BASE_API_URL ?? 'http://localhost:8090';
 const MAX_SEATS = 4;
 
 const SECTION_META: Record<string, { korName: string; color: string }> = {
@@ -57,6 +58,8 @@ export default function SeatsPage() {
   const [validating, setValidating] = useState(true);
   const [loading, setLoading] = useState(true);
   const [soldOut, setSoldOut] = useState(false);
+  const [proceeding, setProceeding] = useState(false);
+  const [proceedError, setProceedError] = useState<string | null>(null);
 
   useEffect(() => {
     const accessToken = localStorage.getItem('accessToken');
@@ -68,19 +71,14 @@ export default function SeatsPage() {
       return;
     }
 
-    fetch(`${QUEUE_API}/api/queue/validate`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'X-Entry-Token': entryToken,
-      },
+    authFetch(`${QUEUE_API}/api/queue/validate`, {
+      headers: { 'X-Entry-Token': entryToken },
     })
       .then(res => {
         if (!res.ok) throw new Error('invalid token');
         setValidating(false);
         // availability 검증: Redis remaining 기반 매진 체크
-        return fetch(`${BOOKING_API}/api/seats/${eventId}/availability`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        return authFetch(`${BOOKING_API}/api/seats/${eventId}/availability`);
       })
       .then(res => {
         if (!res.ok) throw new Error('availability fetch failed');
@@ -92,9 +90,7 @@ export default function SeatsPage() {
           setLoading(false);
           return null;
         }
-        return fetch(`${BOOKING_API}/api/seats/${eventId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        return authFetch(`${BOOKING_API}/api/seats/${eventId}`);
       })
       .then(res => {
         if (!res) return null;
@@ -119,10 +115,7 @@ export default function SeatsPage() {
         setLoading(false);
       })
       .catch(() => {
-        fetch(`${QUEUE_API}/api/queue/release?eventId=${eventId}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken!}` },
-        }).finally(() => {
+        authFetch(`${QUEUE_API}/api/queue/release?eventId=${eventId}`, { method: 'POST' }).finally(() => {
           localStorage.removeItem('entryToken');
           localStorage.removeItem('entryEventId');
           router.replace('/queue');
@@ -186,10 +179,42 @@ export default function SeatsPage() {
     });
   };
 
-  const handleProceed = () => {
-    if (selectedWithInfo.length === 0) return;
-    sessionStorage.setItem('selectedSeats', JSON.stringify({ seats: selectedWithInfo, subtotal, fees, total }));
-    router.push('/payment');
+  // 좌석 선택 → 결제 페이지로 넘어가는 시점에 좌석마다 PENDING 예약을 미리 만들어둔다.
+  // 결제(PG 승인)는 이 예약들을 묶어서 payment 페이지에서 한 번에 확정한다.
+  const handleProceed = async () => {
+    if (selectedWithInfo.length === 0 || proceeding) return;
+    setProceeding(true);
+    setProceedError(null);
+
+    const entryToken = localStorage.getItem('entryToken');
+    const eventId = localStorage.getItem('entryEventId');
+    if (!entryToken || !eventId) { router.replace('/queue'); return; }
+
+    const bookingIds: string[] = [];
+    try {
+      for (const seat of selectedWithInfo) {
+        const res = await authFetch(`${BOOKING_API}/api/booking`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId, seatId: seat.id, entryToken }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: '좌석 예약에 실패했습니다' })) as { message?: string };
+          throw new Error(err.message ?? '좌석 예약에 실패했습니다');
+        }
+        const data = await res.json() as { id: string };
+        bookingIds.push(data.id);
+      }
+
+      sessionStorage.setItem('selectedSeats', JSON.stringify({ seats: selectedWithInfo, subtotal, fees, total, bookingIds }));
+      router.push('/payment');
+    } catch (err) {
+      for (const bookingId of bookingIds) {
+        await authFetch(`${BOOKING_API}/api/booking/${bookingId}`, { method: 'DELETE' }).catch(() => {});
+      }
+      setProceedError(err instanceof Error ? err.message : '좌석 예약 중 오류가 발생했습니다');
+      setProceeding(false);
+    }
   };
 
   if (!currentSection) return null;
@@ -364,17 +389,21 @@ export default function SeatsPage() {
               </div>
             )}
 
+            {proceedError && (
+              <p className="mt-3 text-xs text-red-400">{proceedError}</p>
+            )}
+
             <button
               onClick={handleProceed}
-              disabled={selectedWithInfo.length === 0}
+              disabled={selectedWithInfo.length === 0 || proceeding}
               className="mt-4 w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200"
               style={{
-                backgroundColor: selectedWithInfo.length > 0 ? '#D4A83A' : '#1A1A28',
-                color: selectedWithInfo.length > 0 ? '#04040A' : 'rgba(240,235,224,0.25)',
-                cursor: selectedWithInfo.length > 0 ? 'pointer' : 'not-allowed',
+                backgroundColor: selectedWithInfo.length > 0 && !proceeding ? '#D4A83A' : '#1A1A28',
+                color: selectedWithInfo.length > 0 && !proceeding ? '#04040A' : 'rgba(240,235,224,0.25)',
+                cursor: selectedWithInfo.length > 0 && !proceeding ? 'pointer' : 'not-allowed',
               }}
             >
-              결제하기 ({selectedWithInfo.length}석)
+              {proceeding ? '좌석 확보 중...' : `결제하기 (${selectedWithInfo.length}석)`}
             </button>
           </div>
         </aside>

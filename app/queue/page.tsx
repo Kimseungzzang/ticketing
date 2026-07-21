@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { mockEvent } from '@/lib/mock-data';
+import { authFetch } from '@/lib/api';
 import StepIndicator from '@/components/StepIndicator';
 
-const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8082';
+const QUEUE_API = process.env.NEXT_PUBLIC_QUEUE_BASE_API_URL ?? 'http://localhost:8090';
 const EVENT_ID = 'EVT2026-001';
 const POLL_INTERVAL_MS = 3000;
 
@@ -37,9 +38,7 @@ export default function QueuePage() {
     if (!token) { router.push('/'); return; }
 
     try {
-      const res = await fetch(`${QUEUE_API}/api/queue/status?eventId=${EVENT_ID}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch(`${QUEUE_API}/api/queue/status?eventId=${EVENT_ID}`);
       if (!res.ok) throw new Error('상태 조회 실패');
 
       const data = await res.json() as QueueStatus;
@@ -67,14 +66,7 @@ export default function QueuePage() {
     }
 
     // 대기열 진입
-    fetch(`${QUEUE_API}/api/queue/enter`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ eventId: EVENT_ID }),
-    })
+    authFetch(`${QUEUE_API}/api/queue/enter?eventId=${EVENT_ID}`, { method: 'POST' })
       .then(res => {
         if (!res.ok) throw new Error('대기열 진입 실패');
         return res.json();

@@ -184,6 +184,7 @@ export default function ConfirmationPage() {
             홈으로
           </button>
           <button
+            onClick={() => router.push('/reservations')}
             className="px-6 py-3 rounded-xl text-sm font-bold transition-all bg-[#D4A83A] hover:bg-[#E8BE50] text-[#04040A]"
           >
             티켓 확인하기

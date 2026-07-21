@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { mockEvent } from '@/lib/mock-data';
 
 const authBaseApiUrl =
-  process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8081';
+  process.env.NEXT_PUBLIC_AUTH_BASE_API_URL ?? 'http://localhost:8090';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +13,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 이미 로그인돼 있으면(토큰 보유) 굳이 로그인 폼을 다시 보여주지 않고 내 예약 페이지로.
+  // 토큰이 만료됐어도 /reservations가 authFetch로 자동 갱신을 시도하고, 그마저 실패하면
+  // 거기서 다시 이 페이지로 돌려보내므로 루프 없이 안전하다.
+  useEffect(() => {
+    if (localStorage.getItem('accessToken')) {
+      router.replace('/reservations');
+    }
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,6 +182,13 @@ export default function LoginPage() {
             <button className="text-xs text-[#F0EBE0]/30 hover:text-[#D4A83A] transition-colors">회원가입</button>
             <span className="text-[#F0EBE0]/15 text-xs">·</span>
             <button className="text-xs text-[#F0EBE0]/30 hover:text-[#D4A83A] transition-colors">비밀번호 찾기</button>
+            <span className="text-[#F0EBE0]/15 text-xs">·</span>
+            <button
+              onClick={() => router.push('/reservations')}
+              className="text-xs text-[#F0EBE0]/30 hover:text-[#D4A83A] transition-colors"
+            >
+              내 예약 확인
+            </button>
           </div>
 
           <div className="mt-8 p-3 rounded-lg border" style={{ background: 'rgba(212,168,58,0.07)', borderColor: 'rgba(212,168,58,0.18)' }}>
