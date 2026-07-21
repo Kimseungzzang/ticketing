@@ -30,6 +30,10 @@ object Store {
         val zs = zsets[key] ?: return 0
         return synchronized(zs) { if (zs.remove(member)) 1 else 0 }
     }
+    fun zremrangebyscore(key: String, min: Double, max: Double): Int {
+        val zs = zsets[key] ?: return 0
+        return synchronized(zs) { zs.removeRangeByScore(min, max) }
+    }
     fun zpopmin(key: String, n: Int): List<Pair<String, Double>> {
         val zs = zsets[key] ?: return emptyList()
         return synchronized(zs) { zs.popMin(n) }
@@ -44,6 +48,23 @@ object Store {
         printDebugTable("SET $key")
     }
 
+    /** SET ... NX — 키가 없을 때(또는 만료됐을 때)만 저장. compute()로 확인+저장을 한 번에 원자적으로 처리. */
+    fun setNx(key: String, value: String, ttlMs: Long? = null): Boolean {
+        val now = System.currentTimeMillis()
+        var success = false
+        map.compute(key) { _, existing ->
+            val alive = existing != null && (existing.expiresAt == null || existing.expiresAt > now)
+            if (alive) {
+                existing
+            } else {
+                success = true
+                Entry(value, ttlMs?.let { now + it })
+            }
+        }
+        if (success) printDebugTable("SETNX $key")
+        return success
+    }
+
     fun get(key: String): String? {
         val entry = map[key] ?: return null
         if (entry.expiresAt != null && System.currentTimeMillis() > entry.expiresAt) {
@@ -53,6 +74,26 @@ object Store {
             return null
         }
         return entry.value
+    }
+
+    /** INCR/DECR 공용 — 원자적 증감. 값이 정수가 아니면 null(에러). 기존 TTL은 유지. */
+    fun incrBy(key: String, delta: Long): Long? {
+        var error = false
+        var result = 0L
+        map.compute(key) { _, existing ->
+            val now = System.currentTimeMillis()
+            val alive = existing != null && (existing.expiresAt == null || existing.expiresAt > now)
+            val current = if (alive) existing!!.value.toLongOrNull() else 0L
+            if (current == null) {
+                error = true
+                return@compute existing
+            }
+            result = current + delta
+            Entry(result.toString(), if (alive) existing!!.expiresAt else null)
+        }
+        if (error) return null
+        printDebugTable("INCRBY $key")
+        return result
     }
 
     fun del(vararg keys: String): Int {

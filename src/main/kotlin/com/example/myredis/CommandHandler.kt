@@ -15,6 +15,8 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
             "SET"     -> handleSet(args)
             "GET"     -> handleGet(args)
             "DEL"     -> handleDel(args)
+            "INCR"    -> handleIncr(args)
+            "DECR"    -> handleDecr(args)
             "EXPIRE"  -> handleExpire(args)
             "TTL"     -> handleTtl(args)
             "EXISTS"  -> handleExists(args)
@@ -24,6 +26,7 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
             "ZCARD"   -> handleZcard(args)
             "ZSCORE"  -> handleZscore(args)
             "ZREM"    -> handleZrem(args)
+            "ZREMRANGEBYSCORE" -> handleZremrangebyscore(args)
             "ZPOPMIN" -> handleZpopmin(args)
             "ZRANGE"  -> handleZrange(args)
             "COMMAND" -> RespEncoder.simpleString("OK")
@@ -37,6 +40,7 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
         val key = args[1]
         val value = args[2]
         var ttlMs: Long? = null
+        var nx = false
         var i = 3
         while (i < args.size) {
             when (args[i].uppercase()) {
@@ -44,8 +48,13 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
                     ?: return RespEncoder.error("ERR invalid expire time")) * 1000
                 "PX" -> ttlMs = args.getOrNull(++i)?.toLongOrNull()
                     ?: return RespEncoder.error("ERR invalid expire time")
+                "NX" -> nx = true
             }
             i++
+        }
+        if (nx) {
+            // 존재하면(살아있으면) 실패 → nil 응답, 실제 Redis와 동일하게 에러가 아니라 nil로 알림.
+            return if (Store.setNx(key, value, ttlMs)) RespEncoder.simpleString("OK") else RespEncoder.nullBulk()
         }
         Store.set(key, value, ttlMs)
         return RespEncoder.simpleString("OK")
@@ -60,6 +69,18 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
     private fun handleDel(args: List<String>): String {
         if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'del'")
         return RespEncoder.integer(Store.del(*args.drop(1).toTypedArray()).toLong())
+    }
+
+    private fun handleIncr(args: List<String>): String {
+        if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'incr'")
+        val result = Store.incrBy(args[1], 1) ?: return RespEncoder.error("ERR value is not an integer or out of range")
+        return RespEncoder.integer(result)
+    }
+
+    private fun handleDecr(args: List<String>): String {
+        if (args.size < 2) return RespEncoder.error("ERR wrong number of arguments for 'decr'")
+        val result = Store.incrBy(args[1], -1) ?: return RespEncoder.error("ERR value is not an integer or out of range")
+        return RespEncoder.integer(result)
     }
 
     private fun handleExpire(args: List<String>): String {
@@ -116,6 +137,20 @@ class CommandHandler : SimpleChannelInboundHandler<List<String>>() {
     private fun handleZrem(args: List<String>): String {
         if (args.size < 3) return RespEncoder.error("ERR wrong number of arguments for 'zrem'")
         return RespEncoder.integer(Store.zrem(args[1], args[2]).toLong())
+    }
+
+    // Redis 표기 "-inf"/"+inf"까지 지원(Double.parseDouble은 "Infinity"만 인식하므로 별도 파싱).
+    private fun parseScoreArg(s: String): Double? = when (s.lowercase()) {
+        "-inf" -> Double.NEGATIVE_INFINITY
+        "+inf", "inf" -> Double.POSITIVE_INFINITY
+        else -> s.toDoubleOrNull()
+    }
+
+    private fun handleZremrangebyscore(args: List<String>): String {
+        if (args.size < 4) return RespEncoder.error("ERR wrong number of arguments for 'zremrangebyscore'")
+        val min = parseScoreArg(args[2]) ?: return RespEncoder.error("ERR min or max is not a float")
+        val max = parseScoreArg(args[3]) ?: return RespEncoder.error("ERR min or max is not a float")
+        return RespEncoder.integer(Store.zremrangebyscore(args[1], min, max).toLong())
     }
 
     private fun handleZpopmin(args: List<String>): String {

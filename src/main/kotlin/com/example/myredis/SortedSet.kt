@@ -102,6 +102,16 @@ class SortedSet {
         return result
     }
 
+    /** ZREMRANGEBYSCORE — score가 [min,max](양끝 포함)인 멤버 전부 제거, 제거된 수 반환. */
+    fun removeRangeByScore(min: Double, max: Double): Int {
+        val toRemove = dict.entries.filter { it.value in min..max }.map { it.key }
+        toRemove.forEach { member ->
+            val s = dict.remove(member)
+            if (s != null) zslDelete(s, member)
+        }
+        return toRemove.size
+    }
+
     /** ZPOPMIN — 최소 score n개 제거하며 반환. */
     fun popMin(n: Int): List<Pair<String, Double>> {
         val out = ArrayList<Pair<String, Double>>(n)
