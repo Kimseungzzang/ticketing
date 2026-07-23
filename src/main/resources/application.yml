@@ -27,4 +27,4 @@ mykafka:
   port: ${KAFKA_PORT:9092}
 
 server:
-  port: ${PORT:8083}
+  port: ${PORT:8085}
